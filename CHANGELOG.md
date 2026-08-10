@@ -1,0 +1,45 @@
+# Changelog
+
+Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
+
+## [1.0.0] - Erster dokumentierter Stand
+
+Die Integration ist iterativ aus einer einfachen YAML-Paket-Lösung heraus zu einer vollständigen Custom Component gewachsen. Diese erste Version fasst die gesamte bisherige Entwicklung zusammen.
+
+### Added – Kernfunktion
+- FAO-56 Penman-Monteith ET0-Berechnung (`et0.py`), Solarstrahlung näherungsweise aus dem PV-Tagesertrag abgeleitet statt über einen dedizierten Pyranometer-Sensor
+- `DataUpdateCoordinator`-basierte Architektur mit persistenter Speicherung (`homeassistant.helpers.storage.Store`)
+- Config Flow (2 Schritte: Allgemein + Zonen) mit Eingabe-Validierung der gewählten Entities vor dem Speichern
+- Options Flow zur nachträglichen Anpassung aller Einstellungen
+
+### Added – Zonen & Bewässerungslogik
+- Bis zu 3 konfigurierbare Zonen mit individuellem Kc-Faktor und Tropfrate
+- Pro-Zone-Sensoren: ETc, Bewässerungsdefizit, Bewässerungsdauer, Zuletzt bewässert (inkl. abgegebener Menge)
+- Tages-Sperre: Bilanz wird pro Kalendertag nur einmal fortgeschrieben, unabhängig davon wie oft neu berechnet/neu gestartet wird
+- Vorausschauender Regen-Skip über `weather.get_forecasts` (setzt `Bewässerungsdauer` bei erwarteten Niederschlag auf 0, ohne die Bilanz selbst zu beeinflussen)
+
+### Added – Saison- & Frostmanagement
+- `switch.gartensaison_aktiv` zum manuellen Pausieren der kompletten Logik (setzt bei jedem Umschalten die Bilanz zurück)
+- Frost-Erkennung über die Tiefsttemperatur-Vorhersage (`binary_sensor.frost_erwartet...`, "sticky" bis Equipment-Abbau bestätigt)
+- Frühjahrs-Erkennung anhand Kalenderdatum + fehlender Frost-Vorhersage (`binary_sensor.fruehjahr_bereit...`)
+- Service `equipment_status_setzen`: verkettet die Bestätigung "Equipment verstaut/aufgebaut" automatisch mit dem Saison-Schalter
+
+### Added – Ausfallsicherheit & Diagnose
+- Retry-Mechanismus für den geplanten Tageslauf (bis zu 3 Versuche im 10-Minuten-Abstand)
+- Fallback auf den letzten bekannten Wert bei kurzzeitig nicht verfügbaren Quellen (max. 26h)
+- Tages-Zähler-Sonderfall (`daily_reset`): Fallback für den PV-Ertragssensor wird bewusst NICHT über eine Mitternachtsgrenze hinweg verwendet
+- Ausführliche Diagnose-Logs (exakter Entity-Zustand, `last_exception` direkt in Retry-Meldungen, Momentaufnahme aller Eingangswerte)
+- Temporärer `DIAGNOSE_MODE`-Schalter für stündliche statt tägliche Läufe während der Fehlersuche
+
+### Fixed
+- `NumberSelector`-Konfiguration mit `step < 0.001` führte zu einem stillen, unprotokollierten 400-Fehler beim Öffnen des Einrichtungsdialogs (HA-interne Validierungsregel)
+- `OptionsFlow.__init__` mit manueller `self.config_entry`-Zuweisung crashte in aktuellen HA-Versionen (`config_entry` ist eine reine Property der Basisklasse)
+- Zeit-Parsing (`update_time`) akzeptiert jetzt sowohl `HH:MM` als auch `HH:MM:SS` (ein Zeit-Picker ohne Sekunden lieferte nur 2 statt 3 Teile)
+- Mehrfachzählung der Tagesbilanz bei wiederholten manuellen Neuberechnungen/Neustarts am selben Tag behoben (Tages-Sperre)
+- `reset_deficit` löscht bei einem globalen Reset jetzt auch die Tages-Sperre selbst, damit direkt danach korrekt neu gebucht werden kann
+
+### Known Issues / TODO
+- Solarstrahlungs-Näherung berücksichtigt keine Dachneigung/-ausrichtung – für Bewässerungszwecke ausreichend, nicht wissenschaftlich exakt
+- Performance Ratio muss einmalig gegen echte Referenzdaten kalibriert werden
+- Tropfraten müssen pro Anlage manuell ermittelt werden
+- `DIAGNOSE_MODE` steht in dieser Version auf `False` (Normalbetrieb) – während der PV-Sensor-Fehlersuche zeitweise auf `True`

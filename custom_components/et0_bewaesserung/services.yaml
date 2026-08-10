@@ -1,0 +1,44 @@
+recalculate:
+  name: ET0 neu berechnen
+  description: Stößt die ET0-Berechnung sofort an, ohne auf den täglichen Zeitpunkt zu warten.
+
+reset_deficit:
+  name: Bewässerungsdefizit zurücksetzen
+  description: >
+    Setzt die Wasserbilanz zurück - global und alle Zonen (ohne Angabe) oder
+    gezielt eine einzelne Zone. Bei Angabe einer Zone wird zusätzlich der
+    "Zuletzt bewässert"-Zeitstempel dieser Zone aktualisiert.
+  fields:
+    zone:
+      name: Zone
+      description: Name der Zone (z. B. "Rasen"). Leer lassen, um alles zurückzusetzen.
+      required: false
+      example: "Rasen"
+      selector:
+        text:
+    amount_mm:
+      name: Abgegebene Menge (mm)
+      description: Optional - die tatsächlich abgegebene Wassermenge, für die Bewässerungshistorie.
+      required: false
+      example: 6
+      selector:
+        number:
+          min: 0
+          max: 50
+          step: 0.1
+          unit_of_measurement: mm
+
+equipment_status_setzen:
+  name: Equipment-Status setzen
+  description: >
+    Bestätigt, dass das Bewässerungs-Equipment (Aiper, Ventile) verstaut
+    oder wieder aufgebaut wurde. Schaltet automatisch auch die Gartensaison
+    entsprechend aus/an und setzt die Bilanz zurück.
+  fields:
+    verstaut:
+      name: Verstaut
+      description: true = Equipment ist winterfest verstaut, false = wieder aufgebaut/einsatzbereit.
+      required: true
+      example: true
+      selector:
+        boolean:

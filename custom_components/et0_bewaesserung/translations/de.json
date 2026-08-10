@@ -1,0 +1,92 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "ET0 Bewässerung einrichten (1/2 - Allgemein)",
+        "data": {
+          "temp_max_entity": "Sensor Tages-Maximaltemperatur",
+          "temp_min_entity": "Sensor Tages-Minimaltemperatur",
+          "humidity_mean_entity": "Sensor mittlere Luftfeuchte",
+          "wind_mean_entity": "Sensor mittlere Windgeschwindigkeit (km/h)",
+          "pv_yield_entity": "Sensor PV-Tagesertrag (kWh)",
+          "weather_entity": "Wetter-Entity (für Niederschlag, optional)",
+          "latitude": "Breitengrad",
+          "elevation": "Höhe über NN (m)",
+          "kwp": "PV-Nennleistung (kWp)",
+          "performance_ratio": "Performance Ratio der PV-Anlage",
+          "update_time": "Uhrzeit der täglichen Berechnung (HH:MM:SS)",
+          "rain_skip_enabled": "Vorausschauenden Regen-Skip aktivieren",
+          "rain_skip_threshold_mm": "Regen-Skip Schwelle (mm für morgen)",
+          "frost_lookahead_days": "Frost-Vorwarnzeit (Tage im Voraus prüfen)",
+          "frost_threshold_c": "Frost-Schwelle (°C)",
+          "spring_earliest_date": "Frühestes Frühjahrs-Datum (MM-TT)"
+        }
+      },
+      "zones": {
+        "title": "ET0 Bewässerung einrichten (2/2 - Zonen)",
+        "description": "Für jede Zone: Name leer lassen, um den Slot zu deaktivieren. Kc-Faktor = Wasserbedarf relativ zu Referenzgras. Tropfrate = Wasserabgabe deiner Anlage in mm pro Minute.",
+        "data": {
+          "zone_0_name": "Zone 1 - Name",
+          "zone_0_kc": "Zone 1 - Kc-Faktor",
+          "zone_0_drip_rate": "Zone 1 - Tropfrate (mm/min)",
+          "zone_1_name": "Zone 2 - Name",
+          "zone_1_kc": "Zone 2 - Kc-Faktor",
+          "zone_1_drip_rate": "Zone 2 - Tropfrate (mm/min)",
+          "zone_2_name": "Zone 3 - Name",
+          "zone_2_kc": "Zone 3 - Kc-Faktor",
+          "zone_2_drip_rate": "Zone 3 - Tropfrate (mm/min)"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Diese Entity existiert nicht oder wurde nicht ausgewählt.",
+      "entity_no_value": "Diese Entity liefert aktuell keinen gültigen Wert (unknown/unavailable). Bitte erst die zugrunde liegende Quelle prüfen.",
+      "entity_not_numeric": "Der aktuelle Wert dieser Entity ist keine Zahl."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ET0 Bewässerung konfigurieren (1/2 - Allgemein)",
+        "data": {
+          "temp_max_entity": "Sensor Tages-Maximaltemperatur",
+          "temp_min_entity": "Sensor Tages-Minimaltemperatur",
+          "humidity_mean_entity": "Sensor mittlere Luftfeuchte",
+          "wind_mean_entity": "Sensor mittlere Windgeschwindigkeit (km/h)",
+          "pv_yield_entity": "Sensor PV-Tagesertrag (kWh)",
+          "weather_entity": "Wetter-Entity (für Niederschlag, optional)",
+          "latitude": "Breitengrad",
+          "elevation": "Höhe über NN (m)",
+          "kwp": "PV-Nennleistung (kWp)",
+          "performance_ratio": "Performance Ratio der PV-Anlage",
+          "update_time": "Uhrzeit der täglichen Berechnung (HH:MM:SS)",
+          "rain_skip_enabled": "Vorausschauenden Regen-Skip aktivieren",
+          "rain_skip_threshold_mm": "Regen-Skip Schwelle (mm für morgen)",
+          "frost_lookahead_days": "Frost-Vorwarnzeit (Tage im Voraus prüfen)",
+          "frost_threshold_c": "Frost-Schwelle (°C)",
+          "spring_earliest_date": "Frühestes Frühjahrs-Datum (MM-TT)"
+        }
+      },
+      "zones": {
+        "title": "ET0 Bewässerung konfigurieren (2/2 - Zonen)",
+        "description": "Für jede Zone: Name leer lassen, um den Slot zu deaktivieren. Kc-Faktor = Wasserbedarf relativ zu Referenzgras. Tropfrate = Wasserabgabe deiner Anlage in mm pro Minute.",
+        "data": {
+          "zone_0_name": "Zone 1 - Name",
+          "zone_0_kc": "Zone 1 - Kc-Faktor",
+          "zone_0_drip_rate": "Zone 1 - Tropfrate (mm/min)",
+          "zone_1_name": "Zone 2 - Name",
+          "zone_1_kc": "Zone 2 - Kc-Faktor",
+          "zone_1_drip_rate": "Zone 2 - Tropfrate (mm/min)",
+          "zone_2_name": "Zone 3 - Name",
+          "zone_2_kc": "Zone 3 - Kc-Faktor",
+          "zone_2_drip_rate": "Zone 3 - Tropfrate (mm/min)"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Diese Entity existiert nicht oder wurde nicht ausgewählt.",
+      "entity_no_value": "Diese Entity liefert aktuell keinen gültigen Wert (unknown/unavailable). Bitte erst die zugrunde liegende Quelle prüfen.",
+      "entity_not_numeric": "Der aktuelle Wert dieser Entity ist keine Zahl."
+    }
+  }
+}
