@@ -59,7 +59,7 @@ Der Einrichtungsdialog läuft in zwei Schritten:
 - Regen-Skip (an/aus + Schwelle in mm)
 - Frost-Vorwarnzeit (Tage), Frost-Schwelle (°C), frühestes Frühjahrs-Datum
 
-**Schritt 2 – Zonen:** bis zu 3 Zonen, je mit Name (leer = deaktiviert), Kc-Faktor und Tropfrate (mm/min).
+**Schritt 2 – Zonen:** bis zu 3 Zonen, je mit Name (leer = deaktiviert), Kc-Faktor, Tropfrate (mm/min) und Mindestabstand zwischen Bewässerungen (Tage, Standard 1).
 
 Alle Werte lassen sich später jederzeit über „Konfigurieren" anpassen – inklusive erneuter Validierung der gewählten Entities.
 

@@ -2,6 +2,16 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.1.0]
+
+### Added
+- **Mindestabstand zwischen Bewässerungen pro Zone** (`min_days`, Standard 1 Tag = bisheriges Verhalten unverändert). Verhindert zu häufiges, oberflächliches Gießen zugunsten selteneren, dafür tieferen Gießens (fördert Wurzelwachstum). Konfigurierbar im Zonen-Schritt des Einrichtungs-/Konfigurieren-Dialogs (1–14 Tage).
+- Neue Attribute an `Bewässerungsdauer <Zone>`: `mindestabstand_erfuellt` (bool) und `tage_seit_letzter_bewaesserung`.
+- Neue interne Coordinator-Methode `_min_interval_status()` zur Berechnung des Tagesabstands seit der letzten dokumentierten Bewässerung dieser Zone (basiert auf dem bereits vorhandenen "Zuletzt bewässert"-Zeitstempel).
+
+### Changed
+- `Bewässerungsdauer <Zone>` wird jetzt zusätzlich zum Regen-Skip auch dann auf 0 gesetzt, wenn der konfigurierte Mindestabstand seit der letzten Bewässerung noch nicht erreicht ist.
+
 ## [1.0.1]
 
 ### Fixed
