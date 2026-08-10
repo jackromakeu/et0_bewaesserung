@@ -35,6 +35,7 @@ from .const import (
     DEFAULT_ZONE_KC,
     DEFAULT_ZONE_DRIP_RATE,
     DEFAULT_ZONE_MIN_DAYS,
+    DEFAULT_ZONE_MIN_DEFICIT_MM,
     zone_key,
     CONF_RAIN_SKIP_ENABLED,
     CONF_RAIN_SKIP_THRESHOLD,
@@ -202,6 +203,11 @@ class Et0Coordinator(DataUpdateCoordinator):
             min_days = int(
                 self._get_config(zone_key(i, "min_days"), DEFAULT_ZONE_MIN_DAYS[i])
             )
+            min_deficit_mm = float(
+                self._get_config(
+                    zone_key(i, "min_deficit_mm"), DEFAULT_ZONE_MIN_DEFICIT_MM[i]
+                )
+            )
             zones.append(
                 {
                     "index": i,
@@ -209,6 +215,7 @@ class Et0Coordinator(DataUpdateCoordinator):
                     "kc": kc,
                     "drip_rate": drip_rate,
                     "min_days": min_days,
+                    "min_deficit_mm": min_deficit_mm,
                 }
             )
         return zones
@@ -516,9 +523,13 @@ class Et0Coordinator(DataUpdateCoordinator):
                 min_interval_ok, days_since_watered = self._min_interval_status(
                     idx, zone["min_days"]
                 )
+                min_deficit_ok = new_deficit >= zone["min_deficit_mm"]
+                watering_allowed = (
+                    not rain_expected and min_interval_ok and min_deficit_ok
+                )
 
                 duration_min = 0.0
-                if not rain_expected and min_interval_ok and zone["drip_rate"] > 0:
+                if watering_allowed and zone["drip_rate"] > 0:
                     duration_min = max(new_deficit, 0.0) / zone["drip_rate"]
 
                 watered_info = self._last_watered.get(idx, {})
@@ -530,6 +541,8 @@ class Et0Coordinator(DataUpdateCoordinator):
                     "rain_skip": rain_expected,
                     "min_interval_ok": min_interval_ok,
                     "days_since_watered": days_since_watered,
+                    "min_deficit_ok": min_deficit_ok,
+                    "watering_allowed": watering_allowed,
                     "last_watered_timestamp": watered_info.get("timestamp"),
                     "last_watered_amount_mm": watered_info.get("amount_mm"),
                 }
@@ -547,8 +560,12 @@ class Et0Coordinator(DataUpdateCoordinator):
                 min_interval_ok, days_since_watered = self._min_interval_status(
                     idx, zone["min_days"]
                 )
+                min_deficit_ok = deficit >= zone["min_deficit_mm"]
+                watering_allowed = (
+                    not rain_expected and min_interval_ok and min_deficit_ok
+                )
                 duration_min = 0.0
-                if not rain_expected and min_interval_ok and zone["drip_rate"] > 0:
+                if watering_allowed and zone["drip_rate"] > 0:
                     duration_min = max(deficit, 0.0) / zone["drip_rate"]
                 watered_info = self._last_watered.get(idx, {})
                 zones_data[idx] = {
@@ -559,6 +576,8 @@ class Et0Coordinator(DataUpdateCoordinator):
                     "rain_skip": rain_expected,
                     "min_interval_ok": min_interval_ok,
                     "days_since_watered": days_since_watered,
+                    "min_deficit_ok": min_deficit_ok,
+                    "watering_allowed": watering_allowed,
                     "last_watered_timestamp": watered_info.get("timestamp"),
                     "last_watered_amount_mm": watered_info.get("amount_mm"),
                 }

@@ -32,6 +32,9 @@ DEFAULT_ZONE_DRIP_RATE = [0.25, 0.20, 0.15]
 # Mindestabstand in Tagen zwischen zwei Bewässerungen derselben Zone -
 # Standard 1 = aktuelles Verhalten unverändert (max. 1x/Tag durch Tages-Sperre)
 DEFAULT_ZONE_MIN_DAYS = [1, 1, 1]
+# Mindest-Defizit in mm, ab dem überhaupt gegossen wird - verhindert
+# Bewässerung bei nur geringfügigem Wasserbedarf
+DEFAULT_ZONE_MIN_DEFICIT_MM = [1.5, 1.5, 1.5]
 
 
 def zone_key(index: int, field: str) -> str:

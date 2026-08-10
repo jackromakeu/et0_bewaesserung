@@ -37,7 +37,10 @@
           "zone_2_drip_rate": "Zone 3 - Tropfrate (mm/min)",
           "zone_0_min_days": "Zone 1 - Mindestabstand (Tage)",
           "zone_1_min_days": "Zone 2 - Mindestabstand (Tage)",
-          "zone_2_min_days": "Zone 3 - Mindestabstand (Tage)"
+          "zone_2_min_days": "Zone 3 - Mindestabstand (Tage)",
+          "zone_0_min_deficit_mm": "Zone 1 - Mindestdefizit (mm)",
+          "zone_1_min_deficit_mm": "Zone 2 - Mindestdefizit (mm)",
+          "zone_2_min_deficit_mm": "Zone 3 - Mindestdefizit (mm)"
         }
       }
     },
@@ -85,7 +88,10 @@
           "zone_2_drip_rate": "Zone 3 - Tropfrate (mm/min)",
           "zone_0_min_days": "Zone 1 - Mindestabstand (Tage)",
           "zone_1_min_days": "Zone 2 - Mindestabstand (Tage)",
-          "zone_2_min_days": "Zone 3 - Mindestabstand (Tage)"
+          "zone_2_min_days": "Zone 3 - Mindestabstand (Tage)",
+          "zone_0_min_deficit_mm": "Zone 1 - Mindestdefizit (mm)",
+          "zone_1_min_deficit_mm": "Zone 2 - Mindestdefizit (mm)",
+          "zone_2_min_deficit_mm": "Zone 3 - Mindestdefizit (mm)"
         }
       }
     },
