@@ -184,7 +184,11 @@ class ZoneDurationSensor(ZoneBaseEntity):
         zone = self._zone_data()
         if not zone:
             return {}
-        return {"regen_skip_aktiv": zone.get("rain_skip", False)}
+        return {
+            "regen_skip_aktiv": zone.get("rain_skip", False),
+            "mindestabstand_erfuellt": zone.get("min_interval_ok", True),
+            "tage_seit_letzter_bewaesserung": zone.get("days_since_watered"),
+        }
 
 
 class ZoneLastWateredSensor(ZoneBaseEntity):

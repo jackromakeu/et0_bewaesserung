@@ -34,7 +34,10 @@
           "zone_1_drip_rate": "Zone 2 - Tropfrate (mm/min)",
           "zone_2_name": "Zone 3 - Name",
           "zone_2_kc": "Zone 3 - Kc-Faktor",
-          "zone_2_drip_rate": "Zone 3 - Tropfrate (mm/min)"
+          "zone_2_drip_rate": "Zone 3 - Tropfrate (mm/min)",
+          "zone_0_min_days": "Zone 1 - Mindestabstand (Tage)",
+          "zone_1_min_days": "Zone 2 - Mindestabstand (Tage)",
+          "zone_2_min_days": "Zone 3 - Mindestabstand (Tage)"
         }
       }
     },
@@ -79,7 +82,10 @@
           "zone_1_drip_rate": "Zone 2 - Tropfrate (mm/min)",
           "zone_2_name": "Zone 3 - Name",
           "zone_2_kc": "Zone 3 - Kc-Faktor",
-          "zone_2_drip_rate": "Zone 3 - Tropfrate (mm/min)"
+          "zone_2_drip_rate": "Zone 3 - Tropfrate (mm/min)",
+          "zone_0_min_days": "Zone 1 - Mindestabstand (Tage)",
+          "zone_1_min_days": "Zone 2 - Mindestabstand (Tage)",
+          "zone_2_min_days": "Zone 3 - Mindestabstand (Tage)"
         }
       }
     },

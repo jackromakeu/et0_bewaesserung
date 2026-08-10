@@ -27,6 +27,7 @@ from .const import (
     DEFAULT_ZONE_NAMES,
     DEFAULT_ZONE_KC,
     DEFAULT_ZONE_DRIP_RATE,
+    DEFAULT_ZONE_MIN_DAYS,
     zone_key,
     CONF_RAIN_SKIP_ENABLED,
     CONF_RAIN_SKIP_THRESHOLD,
@@ -160,6 +161,14 @@ def _build_zone_schema(defaults: dict) -> vol.Schema:
             )
         ] = selector.NumberSelector(
             selector.NumberSelectorConfig(min=0.01, max=5.0, step=0.01, mode="box")
+        )
+        schema_dict[
+            vol.Optional(
+                zone_key(i, "min_days"),
+                default=defaults.get(zone_key(i, "min_days"), DEFAULT_ZONE_MIN_DAYS[i]),
+            )
+        ] = selector.NumberSelector(
+            selector.NumberSelectorConfig(min=1, max=14, step=1, mode="box")
         )
     return vol.Schema(schema_dict)
 

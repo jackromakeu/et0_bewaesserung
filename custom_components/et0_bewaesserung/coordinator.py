@@ -34,6 +34,7 @@ from .const import (
     DEFAULT_ZONE_NAMES,
     DEFAULT_ZONE_KC,
     DEFAULT_ZONE_DRIP_RATE,
+    DEFAULT_ZONE_MIN_DAYS,
     zone_key,
     CONF_RAIN_SKIP_ENABLED,
     CONF_RAIN_SKIP_THRESHOLD,
@@ -198,8 +199,38 @@ class Et0Coordinator(DataUpdateCoordinator):
             drip_rate = float(
                 self._get_config(zone_key(i, "drip_rate"), DEFAULT_ZONE_DRIP_RATE[i])
             )
-            zones.append({"index": i, "name": name, "kc": kc, "drip_rate": drip_rate})
+            min_days = int(
+                self._get_config(zone_key(i, "min_days"), DEFAULT_ZONE_MIN_DAYS[i])
+            )
+            zones.append(
+                {
+                    "index": i,
+                    "name": name,
+                    "kc": kc,
+                    "drip_rate": drip_rate,
+                    "min_days": min_days,
+                }
+            )
         return zones
+
+    def _min_interval_status(self, zone_index: int, min_days: int) -> tuple[bool, int | None]:
+        """Prüft den Mindestabstand seit der letzten Bewässerung dieser Zone.
+
+        Gibt (mindestabstand_erfuellt, tage_seit_letzter_bewaesserung) zurück.
+        Noch nie bewässert -> Abstand gilt als erfüllt (kein künstliches
+        Warten vor der allerersten Bewässerung).
+        """
+        watered_info = self._last_watered.get(zone_index)
+        if not watered_info or not watered_info.get("timestamp"):
+            return True, None
+
+        last_dt = dt_util.parse_datetime(watered_info["timestamp"])
+        if last_dt is None:
+            return True, None
+
+        now = dt_util.now()
+        days_since = (now.date() - last_dt.astimezone(now.tzinfo).date()).days
+        return days_since >= min_days, days_since
 
     def _get_float_state(self, entity_id: str, daily_reset: bool = False) -> float:
         """Liest eine Entity als float, mit Fallback auf den letzten bekannten Wert.
@@ -482,8 +513,12 @@ class Et0Coordinator(DataUpdateCoordinator):
                 new_deficit = max(prev_deficit + etc - precipitation, -10.0)
                 self._zone_deficits[idx] = new_deficit
 
+                min_interval_ok, days_since_watered = self._min_interval_status(
+                    idx, zone["min_days"]
+                )
+
                 duration_min = 0.0
-                if not rain_expected and zone["drip_rate"] > 0:
+                if not rain_expected and min_interval_ok and zone["drip_rate"] > 0:
                     duration_min = max(new_deficit, 0.0) / zone["drip_rate"]
 
                 watered_info = self._last_watered.get(idx, {})
@@ -493,6 +528,8 @@ class Et0Coordinator(DataUpdateCoordinator):
                     "deficit": round(new_deficit, 2),
                     "duration_min": round(duration_min, 1),
                     "rain_skip": rain_expected,
+                    "min_interval_ok": min_interval_ok,
+                    "days_since_watered": days_since_watered,
                     "last_watered_timestamp": watered_info.get("timestamp"),
                     "last_watered_amount_mm": watered_info.get("amount_mm"),
                 }
@@ -507,8 +544,11 @@ class Et0Coordinator(DataUpdateCoordinator):
                 idx = zone["index"]
                 etc = calculate_etc(result["et0"], zone["kc"])
                 deficit = self._zone_deficits.get(idx, 0.0)
+                min_interval_ok, days_since_watered = self._min_interval_status(
+                    idx, zone["min_days"]
+                )
                 duration_min = 0.0
-                if not rain_expected and zone["drip_rate"] > 0:
+                if not rain_expected and min_interval_ok and zone["drip_rate"] > 0:
                     duration_min = max(deficit, 0.0) / zone["drip_rate"]
                 watered_info = self._last_watered.get(idx, {})
                 zones_data[idx] = {
@@ -517,6 +557,8 @@ class Et0Coordinator(DataUpdateCoordinator):
                     "deficit": round(deficit, 2),
                     "duration_min": round(duration_min, 1),
                     "rain_skip": rain_expected,
+                    "min_interval_ok": min_interval_ok,
+                    "days_since_watered": days_since_watered,
                     "last_watered_timestamp": watered_info.get("timestamp"),
                     "last_watered_amount_mm": watered_info.get("amount_mm"),
                 }

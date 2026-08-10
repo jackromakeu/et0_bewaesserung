@@ -29,6 +29,9 @@ DEFAULT_ZONE_NAMES = ["Rasen", "Beete", "Hecken"]
 DEFAULT_ZONE_KC = [0.90, 1.00, 0.50]
 # mm Wasserabgabe pro Minute - MUSS an die eigene Anlage angepasst werden
 DEFAULT_ZONE_DRIP_RATE = [0.25, 0.20, 0.15]
+# Mindestabstand in Tagen zwischen zwei Bewässerungen derselben Zone -
+# Standard 1 = aktuelles Verhalten unverändert (max. 1x/Tag durch Tages-Sperre)
+DEFAULT_ZONE_MIN_DAYS = [1, 1, 1]
 
 
 def zone_key(index: int, field: str) -> str:
