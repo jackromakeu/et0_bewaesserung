@@ -2,6 +2,11 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.0.1]
+
+### Fixed
+- `after_dependencies: ["met"]` im Manifest ergänzt: verhindert eine mögliche Race Condition beim HA-Start, bei der die Wetter-Vorhersage-Abfrage (Regen-Skip, Frost-Erkennung) fehlschlägt, weil die met.no-Integration ihre Entity zum Zeitpunkt unseres ersten Laufs noch nicht bereitgestellt hat ("Service call requested response data but did not match any entities").
+
 ## [1.0.0] - Erster dokumentierter Stand
 
 Die Integration ist iterativ aus einer einfachen YAML-Paket-Lösung heraus zu einer vollständigen Custom Component gewachsen. Diese erste Version fasst die gesamte bisherige Entwicklung zusammen.
