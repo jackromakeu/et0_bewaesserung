@@ -2,6 +2,19 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.2.0]
+
+### Added
+- **Mindestdefizit pro Zone** (`min_deficit_mm`, Standard 1,5 mm). Verhindert Bewässerung bei nur geringfügigem Wasserbedarf. Konfigurierbar im Zonen-Schritt (0–20 mm).
+- **Kombiniertes `bewaesserung_erlaubt`-Attribut** an `Bewässerungsdauer <Zone>`: fasst Regen-Skip, Mindestabstand und Mindestdefizit zu einem einzigen Flag zusammen - Automationen müssen jetzt nur noch eine statt drei Bedingungen prüfen.
+- **Neue Binary-Sensor-Entitäten für die Fehlersuche** - machen die einzelnen Bausteine der Gieß-Entscheidung direkt auf dem Dashboard sichtbar, statt nur als Attribut verborgen zu sein:
+  - `Mindestabstand erfüllt <Zone>` (pro Zone)
+  - `Mindestdefizit erfüllt <Zone>` (pro Zone)
+  - `Regen erwartet (Skip aktiv)` (global, inkl. Attribut mit der vorhergesagten Regenmenge)
+
+### Changed
+- `Bewässerungsdauer <Zone>` wird jetzt zusätzlich auf 0 gesetzt, wenn das konfigurierte Mindestdefizit noch nicht erreicht ist (bisher nur Regen-Skip und Mindestabstand).
+
 ## [1.1.0]
 
 ### Added
