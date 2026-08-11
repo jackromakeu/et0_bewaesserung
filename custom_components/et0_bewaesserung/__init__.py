@@ -24,8 +24,6 @@ RESET_DEFICIT_SCHEMA = vol.Schema(
     }
 )
 
-RECALCULATE_SCHEMA = vol.Schema({vol.Optional("force", default=False): cv.boolean})
-
 EQUIPMENT_STATUS_SCHEMA = vol.Schema({vol.Required("verstaut"): cv.boolean})
 
 
@@ -53,8 +51,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     async def handle_recalculate(call: ServiceCall) -> None:
-        if call.data.get("force", False):
-            await coordinator.async_force_recalculate()
         await coordinator.async_refresh()
         if not coordinator.last_update_success:
             raise HomeAssistantError(
@@ -75,9 +71,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 raise HomeAssistantError(f"Zone '{zone_name}' nicht gefunden")
         await coordinator.async_reset_deficit(zone_index, amount_mm=amount_mm)
 
-    hass.services.async_register(
-        DOMAIN, "recalculate", handle_recalculate, schema=RECALCULATE_SCHEMA
-    )
+    hass.services.async_register(DOMAIN, "recalculate", handle_recalculate)
     hass.services.async_register(
         DOMAIN, "reset_deficit", handle_reset_deficit, schema=RESET_DEFICIT_SCHEMA
     )

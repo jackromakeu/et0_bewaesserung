@@ -2,22 +2,9 @@ recalculate:
   name: ET0 neu berechnen
   description: >
     Stößt die ET0-Berechnung sofort an, ohne auf den täglichen Zeitpunkt zu
-    warten. Ist der heutige Tag bereits gebucht, werden dabei standardmäßig
-    nur die Anzeigewerte aufgefrischt (Tages-Sperre bleibt bestehen).
-  fields:
-    force:
-      name: Erzwingen
-      description: >
-        true = eine bereits erfolgte heutige Buchung wird gezielt
-        zurückgenommen und die Tages-Sperre gelöst, bevor neu berechnet
-        wird - z.B. um eine fehlerhafte Buchung (z.B. Testlauf kurz nach
-        Mitternacht mit PV-Ertrag=0) zu korrigieren. Betrifft nur den
-        heutigen Beitrag, die Bilanz vorheriger Tage bleibt unangetastet.
-      required: false
-      default: false
-      example: true
-      selector:
-        boolean:
+    warten. Beliebig oft wiederholbar - die Berechnung des laufenden Tages
+    wird überschrieben, nicht addiert, und kann die Bilanz daher nicht
+    verfälschen.
 
 reset_deficit:
   name: Bewässerungsdefizit zurücksetzen

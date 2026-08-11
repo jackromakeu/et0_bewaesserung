@@ -64,14 +64,23 @@ class Et0Coordinator(DataUpdateCoordinator):
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=None)
         self.entry = entry
         self._store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry.entry_id}")
-        self._deficit = 0.0
-        self._zone_deficits: dict[int, float] = {}
-        self._last_processed_date: str | None = None
+        # --- Datenmodell (seit v1.4.0, ersetzt die additive Buchung + Tages-Sperre) ---
+        # carry  = aufgelaufenes Defizit ABGESCHLOSSENER Tage, abzüglich Bewässerung.
+        #          Das ist die Basis für die morgendliche Bewässerung.
+        # today  = ETc minus Niederschlag des LAUFENDEN Tages. Wird bei jeder
+        #          Berechnung ÜBERSCHRIEBEN, nie addiert -> beliebig oft
+        #          wiederholbar ohne Verfälschung (idempotent). Genau deshalb
+        #          ist keine Tages-Sperre mehr nötig.
+        # current_day = auf welchen Kalendertag sich "today" bezieht. Beim
+        #          Tageswechsel wandert today in carry (Rollover).
+        self._carry_deficit = 0.0
+        self._today_deficit = 0.0
+        self._zone_carry: dict[int, float] = {}
+        self._zone_today: dict[int, float] = {}
+        self._current_day: str | None = None
         self._last_known_values: dict[str, dict] = {}
         self._fallback_used_this_run: set[str] = set()
         self._last_watered: dict[int, dict] = {}
-        self._today_contribution_global: float = 0.0
-        self._today_contribution: dict[int, float] = {}
         self._season_active: bool = True
         self._equipment_stored: bool = False
         self._frost_warning_active: bool = False
@@ -83,26 +92,62 @@ class Et0Coordinator(DataUpdateCoordinator):
         """Lädt gespeicherte Werte und registriert den täglichen Trigger."""
         stored = await self._store.async_load()
         if stored:
-            self._deficit = stored.get("deficit", 0.0)
-            # Store persistiert als JSON -> Zonen-Keys kommen als Strings zurück
-            self._zone_deficits = {
-                int(k): v for k, v in stored.get("zone_deficits", {}).items()
-            }
-            self._last_processed_date = stored.get("last_processed_date")
             self._last_known_values = stored.get("last_known_values", {})
             self._last_watered = {
                 int(k): v for k, v in stored.get("last_watered", {}).items()
-            }
-            self._today_contribution_global = stored.get(
-                "today_contribution_global", 0.0
-            )
-            self._today_contribution = {
-                int(k): v for k, v in stored.get("today_contribution", {}).items()
             }
             self._season_active = stored.get("season_active", True)
             self._equipment_stored = stored.get("equipment_stored", False)
             self._frost_warning_active = stored.get("frost_warning_active", False)
             self._spring_ready_active = stored.get("spring_ready_active", False)
+
+            if "carry_deficit" in stored:
+                # Neues Format (v1.4.0+)
+                self._carry_deficit = stored.get("carry_deficit", 0.0)
+                self._today_deficit = stored.get("today_deficit", 0.0)
+                self._zone_carry = {
+                    int(k): v for k, v in stored.get("zone_carry", {}).items()
+                }
+                self._zone_today = {
+                    int(k): v for k, v in stored.get("zone_today", {}).items()
+                }
+                self._current_day = stored.get("current_day")
+            else:
+                # --- Migration vom alten additiven Format ---
+                # Das alte "deficit" enthielt bereits ALLES inkl. des heutigen
+                # Beitrags. Wir übernehmen es vollständig als carry und starten
+                # today bei 0 - der nächste Lauf berechnet today dann sauber neu.
+                # Kleiner Schönheitsfehler: der heutige Beitrag steckt dadurch
+                # einmalig doppelt drin (in carry UND neu in today). Deshalb
+                # ziehen wir den bekannten heutigen Beitrag hier direkt ab.
+                old_today_global = stored.get("today_contribution_global", 0.0)
+                old_today_zones = {
+                    int(k): v for k, v in stored.get("today_contribution", {}).items()
+                }
+                old_processed = stored.get("last_processed_date")
+                today_iso = date.today().isoformat()
+
+                self._carry_deficit = stored.get("deficit", 0.0)
+                self._zone_carry = {
+                    int(k): v for k, v in stored.get("zone_deficits", {}).items()
+                }
+                if old_processed == today_iso:
+                    self._carry_deficit = max(
+                        self._carry_deficit - old_today_global, -10.0
+                    )
+                    for idx, delta in old_today_zones.items():
+                        self._zone_carry[idx] = max(
+                            self._zone_carry.get(idx, 0.0) - delta, -10.0
+                        )
+                self._today_deficit = 0.0
+                self._zone_today = {}
+                self._current_day = today_iso
+                _LOGGER.info(
+                    "Datenmodell auf carry/today migriert (carry=%.2f, "
+                    "heutiger Beitrag %.2f herausgerechnet)",
+                    self._carry_deficit,
+                    old_today_global if old_processed == today_iso else 0.0,
+                )
 
         update_time = self.entry.options.get(
             CONF_UPDATE_TIME,
@@ -185,19 +230,54 @@ class Et0Coordinator(DataUpdateCoordinator):
         """Speichert den kompletten persistenten Zustand an einer Stelle."""
         await self._store.async_save(
             {
-                "deficit": self._deficit,
-                "zone_deficits": self._zone_deficits,
-                "last_processed_date": self._last_processed_date,
+                "carry_deficit": self._carry_deficit,
+                "today_deficit": self._today_deficit,
+                "zone_carry": self._zone_carry,
+                "zone_today": self._zone_today,
+                "current_day": self._current_day,
                 "last_known_values": self._last_known_values,
                 "last_watered": self._last_watered,
-                "today_contribution_global": self._today_contribution_global,
-                "today_contribution": self._today_contribution,
                 "season_active": self._season_active,
                 "equipment_stored": self._equipment_stored,
                 "frost_warning_active": self._frost_warning_active,
                 "spring_ready_active": self._spring_ready_active,
             }
         )
+
+    def _rollover_if_needed(self) -> bool:
+        """Schiebt beim Tageswechsel "today" nach "carry".
+
+        Wird bei JEDER Berechnung aufgerufen (nicht per Timer), damit ein
+        verpasster Mitternachts-Zeitpunkt - z.B. weil HA gerade neu startete,
+        ein Update lief oder der Strom weg war - beim nächsten Lauf
+        automatisch nachgeholt wird. Genau dieses Ausfallrisiko war der
+        Hauptkritikpunkt am reinen Timer-Ansatz.
+        """
+        today_iso = date.today().isoformat()
+        if self._current_day == today_iso:
+            return False
+
+        if self._current_day is not None:
+            self._carry_deficit = max(
+                self._carry_deficit + self._today_deficit, -10.0
+            )
+            for idx, val in self._zone_today.items():
+                self._zone_carry[idx] = max(
+                    self._zone_carry.get(idx, 0.0) + val, -10.0
+                )
+            _LOGGER.info(
+                "Tageswechsel %s -> %s: today (%.2f mm) nach carry übernommen "
+                "(neu: %.2f mm)",
+                self._current_day,
+                today_iso,
+                self._today_deficit,
+                self._carry_deficit,
+            )
+
+        self._today_deficit = 0.0
+        self._zone_today = {}
+        self._current_day = today_iso
+        return True
 
     def get_zone_definitions(self) -> list[dict]:
         """Liefert die konfigurierten, aktiven Zonen (leerer Name = deaktiviert)."""
@@ -513,98 +593,61 @@ class Et0Coordinator(DataUpdateCoordinator):
                 )
             self._spring_ready_active = True
 
-        # --- Tages-Sperre: Bilanz nur EINMAL pro Kalendertag fortschreiben ---
-        today_iso = date.today().isoformat()
-        is_new_day = self._last_processed_date != today_iso
+        # --- Rollover prüfen (holt einen verpassten Tageswechsel nach) ---
+        self._rollover_if_needed()
 
-        if is_new_day:
-            # --- Globale Referenzbilanz (Kc=1, Referenzgras) ---
-            global_delta = result["et0"] - precipitation
-            self._deficit = max(self._deficit + global_delta, -10.0)
-            self._today_contribution_global = global_delta
-            self._today_contribution = {}
+        # --- IDEMPOTENTE Berechnung: "today" wird ÜBERSCHRIEBEN, nie addiert.
+        #     Dadurch ist beliebig häufiges Neuberechnen am selben Tag
+        #     unschädlich - eine Tages-Sperre ist nicht mehr nötig. ---
+        self._today_deficit = result["et0"] - precipitation
 
-            # --- Bilanz je Zone (Kc-gewichtet) ---
-            zones_data: dict[int, dict] = {}
-            for zone in self.get_zone_definitions():
-                idx = zone["index"]
-                etc = calculate_etc(result["et0"], zone["kc"])
-                zone_delta = etc - precipitation
-                prev_deficit = self._zone_deficits.get(idx, 0.0)
-                new_deficit = max(prev_deficit + zone_delta, -10.0)
-                self._zone_deficits[idx] = new_deficit
-                self._today_contribution[idx] = zone_delta
+        zones_data: dict[int, dict] = {}
+        for zone in self.get_zone_definitions():
+            idx = zone["index"]
+            etc = calculate_etc(result["et0"], zone["kc"])
+            self._zone_today[idx] = etc - precipitation
 
-                min_interval_ok, days_since_watered = self._min_interval_status(
-                    idx, zone["min_days"]
-                )
-                min_deficit_ok = new_deficit >= zone["min_deficit_mm"]
-                watering_allowed = (
-                    not rain_expected and min_interval_ok and min_deficit_ok
-                )
+            carry = self._zone_carry.get(idx, 0.0)
+            # Basis fürs Gießen = abgeschlossene Tage. Der laufende Tag ist
+            # erst am Abend vollständig und fließt beim Rollover ein.
+            deficit_for_watering = carry
+            deficit_running = max(carry + self._zone_today[idx], -10.0)
 
-                duration_min = 0.0
-                if watering_allowed and zone["drip_rate"] > 0:
-                    duration_min = max(new_deficit, 0.0) / zone["drip_rate"]
-
-                watered_info = self._last_watered.get(idx, {})
-                zones_data[idx] = {
-                    "name": zone["name"],
-                    "etc": etc,
-                    "deficit": round(new_deficit, 2),
-                    "duration_min": round(duration_min, 1),
-                    "rain_skip": rain_expected,
-                    "min_interval_ok": min_interval_ok,
-                    "days_since_watered": days_since_watered,
-                    "min_deficit_ok": min_deficit_ok,
-                    "watering_allowed": watering_allowed,
-                    "last_watered_timestamp": watered_info.get("timestamp"),
-                    "last_watered_amount_mm": watered_info.get("amount_mm"),
-                    "today_contribution_mm": round(self._today_contribution.get(idx, 0.0), 2),
-                }
-
-            self._last_processed_date = today_iso
-            await self._persist()
-        else:
-            # Heute wurde schon gebucht - Bilanz unverändert lassen, aber
-            # trotzdem aktuelle Diagnosewerte (ETc je Zone) zur Anzeige liefern
-            zones_data = {}
-            for zone in self.get_zone_definitions():
-                idx = zone["index"]
-                etc = calculate_etc(result["et0"], zone["kc"])
-                deficit = self._zone_deficits.get(idx, 0.0)
-                min_interval_ok, days_since_watered = self._min_interval_status(
-                    idx, zone["min_days"]
-                )
-                min_deficit_ok = deficit >= zone["min_deficit_mm"]
-                watering_allowed = (
-                    not rain_expected and min_interval_ok and min_deficit_ok
-                )
-                duration_min = 0.0
-                if watering_allowed and zone["drip_rate"] > 0:
-                    duration_min = max(deficit, 0.0) / zone["drip_rate"]
-                watered_info = self._last_watered.get(idx, {})
-                zones_data[idx] = {
-                    "name": zone["name"],
-                    "etc": etc,
-                    "deficit": round(deficit, 2),
-                    "duration_min": round(duration_min, 1),
-                    "rain_skip": rain_expected,
-                    "min_interval_ok": min_interval_ok,
-                    "days_since_watered": days_since_watered,
-                    "min_deficit_ok": min_deficit_ok,
-                    "watering_allowed": watering_allowed,
-                    "last_watered_timestamp": watered_info.get("timestamp"),
-                    "last_watered_amount_mm": watered_info.get("amount_mm"),
-                    "today_contribution_mm": round(self._today_contribution.get(idx, 0.0), 2),
-                }
-            _LOGGER.debug(
-                "ET0-Bilanz heute (%s) bereits gebucht - überspringe erneute Buchung",
-                today_iso,
+            min_interval_ok, days_since_watered = self._min_interval_status(
+                idx, zone["min_days"]
             )
-            await self._persist()
+            min_deficit_ok = deficit_for_watering >= zone["min_deficit_mm"]
+            watering_allowed = not rain_expected and min_interval_ok and min_deficit_ok
 
-        result["deficit"] = round(self._deficit, 2)
+            duration_min = 0.0
+            if watering_allowed and zone["drip_rate"] > 0:
+                duration_min = max(deficit_for_watering, 0.0) / zone["drip_rate"]
+
+            watered_info = self._last_watered.get(idx, {})
+            zones_data[idx] = {
+                "name": zone["name"],
+                "etc": etc,
+                "deficit": round(deficit_for_watering, 2),
+                "deficit_running": round(deficit_running, 2),
+                "today_contribution_mm": round(self._zone_today[idx], 2),
+                "duration_min": round(duration_min, 1),
+                "rain_skip": rain_expected,
+                "min_interval_ok": min_interval_ok,
+                "days_since_watered": days_since_watered,
+                "min_deficit_ok": min_deficit_ok,
+                "watering_allowed": watering_allowed,
+                "last_watered_timestamp": watered_info.get("timestamp"),
+                "last_watered_amount_mm": watered_info.get("amount_mm"),
+            }
+
+        await self._persist()
+
+        result["deficit"] = round(self._carry_deficit, 2)
+        result["deficit_running"] = round(
+            max(self._carry_deficit + self._today_deficit, -10.0), 2
+        )
+        result["today_contribution_global"] = round(self._today_deficit, 2)
+        result["current_day"] = self._current_day
         result["precipitation"] = precipitation
         result["rain_expected"] = rain_expected
         result["forecast_precip_mm"] = round(forecast_precip_mm, 1)
@@ -614,45 +657,7 @@ class Et0Coordinator(DataUpdateCoordinator):
         result["equipment_stored"] = self._equipment_stored
         result["frost_warning_active"] = self._frost_warning_active
         result["spring_ready_active"] = self._spring_ready_active
-        # Diagnose-Transparenz: macht den intern verwendeten Buchungs-Zustand
-        # direkt sichtbar, statt ihn aus Verlaufsgraphen rekonstruieren zu
-        # müssen (genau das hat uns schon mehrfach in die Irre geführt).
-        result["last_processed_date"] = self._last_processed_date
-        result["today_contribution_global"] = round(self._today_contribution_global, 2)
         return result
-
-    async def async_force_recalculate(self) -> None:
-        """Macht die heutige Buchung (falls vorhanden) gezielt rückgängig und
-        löst die Tages-Sperre, damit der nächste Refresh heute nochmal neu
-        bucht - z.B. weil ein Testlauf kurz nach Mitternacht mit Rs=0 die
-        korrekte Buchung des Tages vorweggenommen hat.
-
-        Im Gegensatz zu einem globalen reset_deficit werden dabei NUR die
-        heute tatsächlich hinzugefügten Beiträge abgezogen - die Bilanz
-        aus vorangegangenen Tagen bleibt unangetastet.
-        """
-        today_iso = date.today().isoformat()
-        if self._last_processed_date == today_iso:
-            self._deficit = max(
-                self._deficit - self._today_contribution_global, -10.0
-            )
-            for idx, delta in self._today_contribution.items():
-                current = self._zone_deficits.get(idx, 0.0)
-                self._zone_deficits[idx] = max(current - delta, -10.0)
-
-            self._last_processed_date = None
-            self._today_contribution_global = 0.0
-            self._today_contribution = {}
-            await self._persist()
-            _LOGGER.info(
-                "Heutige Buchung zurückgenommen, Tages-Sperre gelöst - "
-                "nächster Refresh bucht neu"
-            )
-        else:
-            _LOGGER.debug(
-                "Force-Recalculate: heute wurde noch gar nicht gebucht, "
-                "nichts zurückzunehmen"
-            )
 
     async def async_reset_deficit(
         self, zone_index: int | None = None, amount_mm: float | None = None
@@ -674,20 +679,21 @@ class Et0Coordinator(DataUpdateCoordinator):
 
         Ein globaler Reset (zone_index=None, z.B. zur Fehlerkorrektur oder
         beim Saisonwechsel) zählt NICHT als "gegossen" und setzt weiterhin
-        immer hart auf 0.
+        immer hart auf 0 - inklusive des laufenden Tages.
         """
         if zone_index is None:
-            self._deficit = 0.0
-            self._zone_deficits = {k: 0.0 for k in self._zone_deficits}
-            # Tages-Sperre mit lösen: sonst würde die nächste Berechnung (auch
-            # sofort danach) denken "heute schon gebucht" und nichts addieren.
-            self._last_processed_date = None
+            self._carry_deficit = 0.0
+            self._today_deficit = 0.0
+            self._zone_carry = {k: 0.0 for k in self._zone_carry}
+            self._zone_today = {}
         else:
+            # Bewässerung reduziert die Basis abgeschlossener Tage (carry) -
+            # das ist der Wert, auf dem die Gieß-Entscheidung beruht.
             if amount_mm is not None:
-                current = self._zone_deficits.get(zone_index, 0.0)
-                self._zone_deficits[zone_index] = max(current - amount_mm, -10.0)
+                current = self._zone_carry.get(zone_index, 0.0)
+                self._zone_carry[zone_index] = max(current - amount_mm, -10.0)
             else:
-                self._zone_deficits[zone_index] = 0.0
+                self._zone_carry[zone_index] = 0.0
             self._last_watered[zone_index] = {
                 "timestamp": dt_util.now().isoformat(),
                 "amount_mm": amount_mm,
@@ -698,17 +704,19 @@ class Et0Coordinator(DataUpdateCoordinator):
     async def async_set_season_active(self, active: bool) -> None:
         """Schaltet die Bewässerungssaison manuell an/aus (switch.gartensaison_aktiv).
 
-        Setzt IMMER die komplette Bilanz zurück (Referenz + alle Zonen),
-        damit weder ein künstlicher Rückstau über die Pause anwächst, noch
-        beim Reaktivieren sofort ein riesiger Nachhol-Gießschub ausgelöst
-        wird. Rührt bewusst NICHT an equipment_stored/frost_warning_active/
-        spring_ready_active - das sind unabhängige Angelegenheiten, die nur
-        über async_set_equipment_stored gesteuert werden.
+        Setzt IMMER die komplette Bilanz zurück (Referenz + alle Zonen,
+        carry UND laufender Tag), damit weder ein künstlicher Rückstau über
+        die Pause anwächst, noch beim Reaktivieren sofort ein riesiger
+        Nachhol-Gießschub ausgelöst wird. Rührt bewusst NICHT an
+        equipment_stored/frost_warning_active/spring_ready_active - das sind
+        unabhängige Angelegenheiten, die nur über async_set_equipment_stored
+        gesteuert werden.
         """
         self._season_active = active
-        self._deficit = 0.0
-        self._zone_deficits = {k: 0.0 for k in self._zone_deficits}
-        self._last_processed_date = None
+        self._carry_deficit = 0.0
+        self._today_deficit = 0.0
+        self._zone_carry = {k: 0.0 for k in self._zone_carry}
+        self._zone_today = {}
         await self._persist()
         await self.async_request_refresh()
 

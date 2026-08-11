@@ -37,6 +37,7 @@ async def async_setup_entry(
         entities.append(ZoneDeficitSensor(coordinator, entry, idx, name))
         entities.append(ZoneDurationSensor(coordinator, entry, idx, name))
         entities.append(ZoneLastWateredSensor(coordinator, entry, idx, name))
+        entities.append(ZoneRunningDeficitSensor(coordinator, entry, idx, name))
 
     async_add_entities(entities)
 
@@ -79,8 +80,9 @@ class Et0Sensor(Et0BaseEntity):
             "regen_erwartet_morgen": d.get("rain_expected"),
             "regen_prognose_morgen_mm": d.get("forecast_precip_mm"),
             "fallback_werte_verwendet": d.get("fallback_used") or "keine",
-            "heute_bereits_gebucht": d.get("last_processed_date"),
+            "laufender_tag": d.get("current_day"),
             "heutiger_beitrag_referenz_mm": d.get("today_contribution_global"),
+            "defizit_laufend_mm": d.get("deficit_running"),
         }
 
 
@@ -171,7 +173,8 @@ class ZoneDeficitSensor(ZoneBaseEntity):
             return {}
         return {
             "heutiger_beitrag_mm": zone.get("today_contribution_mm"),
-            "heute_bereits_gebucht": self.coordinator.data.get("last_processed_date"),
+            "defizit_laufend_mm": zone.get("deficit_running"),
+            "laufender_tag": self.coordinator.data.get("current_day"),
         }
 
 
@@ -235,3 +238,29 @@ class ZoneLastWateredSensor(ZoneBaseEntity):
             return {}
         amount = zone.get("last_watered_amount_mm")
         return {"menge_mm": amount if amount is not None else "unbekannt"}
+
+
+class ZoneRunningDeficitSensor(ZoneBaseEntity):
+    """Laufendes Defizit dieser Zone: abgeschlossene Tage + laufender Tag.
+
+    Im Gegensatz zu "Bewässerungsdefizit <Zone>" (= Basis für die
+    Gieß-Entscheidung, ändert sich nur beim Tageswechsel und beim Gießen)
+    enthält dieser Wert zusätzlich den bereits berechneten Beitrag des
+    LAUFENDEN Tages. Nützlich fürs Dashboard, weil er sich im Tagesverlauf
+    tatsächlich bewegt, statt nach dem morgendlichen Gießen bis zum Abend
+    auf 0 stehen zu bleiben.
+    """
+
+    _attr_native_unit_of_measurement = "mm"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:water-sync"
+
+    def __init__(self, coordinator, entry, zone_index, zone_name):
+        super().__init__(coordinator, entry, zone_index, zone_name)
+        self._attr_unique_id = f"{entry.entry_id}_zone{zone_index}_deficit_running"
+        self._attr_name = f"Defizit laufend {zone_name}"
+
+    @property
+    def native_value(self):
+        zone = self._zone_data()
+        return zone.get("deficit_running") if zone else None
