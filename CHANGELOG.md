@@ -2,6 +2,11 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.2.2]
+
+### Fixed
+- **Zonen-Reset mit `amount_mm` setzte das Defizit bisher hart auf 0**, statt die tatsächlich abgegebene Menge abzuziehen. Bei dosisbasierten Systemen mit nur diskreten Mengenstufen (z.B. Aiper: 3/6/13mm) führte das dazu, dass bei "nächstgelegener Dosis" ein Rest-Defizit fälschlich verschwand (z.B. 4,2mm Bedarf, 3mm geliefert → Bilanz zeigte 0 statt korrekt 1,2mm) bzw. bei Überdosierung ein Guthaben nicht erfasst wurde. `async_reset_deficit` zieht `amount_mm` jetzt vom aktuellen Defizit ab (Untergrenze -10mm, analog zur täglichen Fortschreibung) statt es zu überschreiben. Ohne `amount_mm`-Angabe bleibt das alte Verhalten (hart auf 0) für Abwärtskompatibilität erhalten.
+
 ## [1.2.1]
 
 ### Fixed
