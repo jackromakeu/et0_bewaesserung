@@ -2,6 +2,26 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.4.0] - Datenmodell-Umbau: Tages-Sperre entfällt
+
+Die bisherige Buchungslogik war **additiv** (`defizit += ETc`). Weil man bei einer Addition zwangsläufig verhindern muss, dass zweimal addiert wird, brauchte es eine "Tages-Sperre" - und die hat eine ganze Reihe von Folgeproblemen erzeugt (blockierte Korrekturen, verfälschte Werte durch Testläufe zur falschen Zeit, ein `force`-Flag als Krücke für die Krücke). Diese Version ersetzt das Fundament durch ein Modell, in dem die Berechnung **idempotent** ist.
+
+### Changed
+- **Neues Datenmodell `carry` + `today`**:
+  - `carry` = aufgelaufenes Defizit **abgeschlossener** Tage, abzüglich Bewässerung → die Basis für die Gieß-Entscheidung.
+  - `today` = ETc − Niederschlag des **laufenden** Tages → wird bei jeder Berechnung **überschrieben**, nie addiert.
+  - Beim Tageswechsel wandert `today` per Rollover in `carry`.
+- **Die Tages-Sperre entfällt ersatzlos.** Mehrfaches `recalculate` am selben Tag ist jetzt folgenlos, weil Überschreiben idempotent ist. Ein Testlauf zu einem ungünstigen Zeitpunkt (z.B. kurz nach Mitternacht mit PV-Ertrag=0) verfälscht die Bilanz nicht mehr dauerhaft - der reguläre Abendlauf überschreibt ihn einfach.
+- **Rollover mit Nachhol-Prüfung** statt reinem Mitternachts-Timer: Der Tageswechsel wird bei jeder Berechnung geprüft und nachgeholt, falls er verpasst wurde (HA-Neustart, Update, Stromausfall um Mitternacht).
+- Automatische **Migration** des bestehenden gespeicherten Zustands beim ersten Start (bereits gebuchter heutiger Beitrag wird korrekt herausgerechnet).
+
+### Added
+- Neuer Sensor **`Defizit laufend <Zone>`**: abgeschlossene Tage + laufender Tag. Bewegt sich im Tagesverlauf, im Gegensatz zum Gieß-Defizit, das nach dem morgendlichen Gießen bis zum Abend auf 0 steht (löst nebenbei das "toter Tacho"-Problem im Dashboard).
+- Neue Attribute: `defizit_laufend_mm`, `laufender_tag`, `heutiger_beitrag_mm` an den jeweiligen Sensoren.
+
+### Removed
+- **`force`-Parameter des `recalculate`-Services** (eingeführt in 1.3.0) - durch die idempotente Berechnung ersatzlos überflüssig geworden.
+
 ## [1.3.1]
 
 ### Added
