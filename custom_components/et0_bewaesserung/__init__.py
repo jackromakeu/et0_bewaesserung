@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import unicodedata
+
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
@@ -23,6 +25,19 @@ RESET_DEFICIT_SCHEMA = vol.Schema(
 )
 
 EQUIPMENT_STATUS_SCHEMA = vol.Schema({vol.Required("verstaut"): cv.boolean})
+
+
+def _normalize(text: str) -> str:
+    """Unicode-normalisiert (NFC) einen Namen für sicheren Vergleich.
+
+    Umlaute wie "ä" können auf zwei binär unterschiedliche Arten kodiert
+    sein (vorkomponiert vs. Basiszeichen + Kombinationszeichen) - beide
+    sehen identisch aus, sind aber mit "==" nicht gleich. Je nachdem, ob
+    ein Name über die UI, ein YAML-Editor oder ein anderes Gerät
+    eingegeben wurde, kann das variieren. Normalisierung vor dem
+    Vergleich macht den Zonen-Namensabgleich robust dagegen.
+    """
+    return unicodedata.normalize("NFC", text).strip()
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -47,8 +62,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         amount_mm = call.data.get("amount_mm")
         zone_index = None
         if zone_name:
+            zone_name_norm = _normalize(zone_name)
             for zone in coordinator.get_zone_definitions():
-                if zone["name"] == zone_name:
+                if _normalize(zone["name"]) == zone_name_norm:
                     zone_index = zone["index"]
                     break
             else:
