@@ -2,6 +2,17 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.3.1]
+
+### Added
+- **Diagnose-Transparenz für den Buchungs-Zustand**: `heute_bereits_gebucht` (= internes `last_processed_date`) und `heutiger_beitrag_mm`/`heutiger_beitrag_referenz_mm` sind jetzt als Attribute an `ET0 Tagesreferenz` (global) und `Bewässerungsdefizit <Zone>` (pro Zone) sichtbar. Bisher musste dieser interne Zustand mühsam aus Verlaufsgraphen rekonstruiert werden, was wiederholt zu falschen Annahmen bei der Fehlersuche geführt hat - jetzt direkt einsehbar.
+
+## [1.3.0]
+
+### Added
+- **`recalculate`-Service um Feld `force` erweitert**: Löst gezielt die Tages-Sperre, indem die HEUTIGE (bereits erfolgte) Buchung rückgängig gemacht wird, bevor neu berechnet wird - ohne die Bilanz vorheriger Tage zu beeinflussen. Behebt eine echte Lücke: bisher gab es keinen Weg, eine fehlerhafte Buchung desselben Tages (z.B. ein Testlauf kurz nach Mitternacht mit PV-Ertrag=0, der eine viel zu niedrige ET0/ETc einbucht) zu korrigieren, außer bis zum nächsten Kalendertag zu warten oder einen globalen Reset zu machen (der auch andere Zonen/Tage mit zurücksetzt).
+- Neue interne Coordinator-Methode `async_force_recalculate()` sowie das Tracking `_today_contribution`/`_today_contribution_global`, das sich merkt, wie viel eine Buchung tatsächlich zur Bilanz beigetragen hat (nicht nur ob gebucht wurde).
+
 ## [1.2.2]
 
 ### Fixed
