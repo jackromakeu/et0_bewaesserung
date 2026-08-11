@@ -604,11 +604,22 @@ class Et0Coordinator(DataUpdateCoordinator):
     ) -> None:
         """Setzt die Wasserbilanz zurück - global (None) oder für eine einzelne Zone.
 
-        Wird eine einzelne Zone zurückgesetzt (der Normalfall nach echtem
-        Gießen durch eine Automation), wird zusätzlich ein "Zuletzt
-        bewässert"-Zeitstempel (+ optional die abgegebene Menge in mm)
-        gespeichert. Ein globaler Reset (z.B. zur Fehlerkorrektur) zählt
-        NICHT automatisch als "gegossen".
+        Wird eine einzelne Zone mit `amount_mm` zurückgemeldet (der
+        Normalfall nach echtem Gießen durch eine Automation), wird diese
+        tatsächlich abgegebene Menge vom Defizit ABGEZOGEN statt das
+        Defizit hart auf 0 zu setzen. Das ist wichtig für dosisbasierte
+        Systeme (z.B. Aiper mit nur 3/6/13mm verfügbar): Bei einem Defizit
+        von 4,2mm und einer gewählten Dosis von 3mm bleiben korrekt 1,2mm
+        Restdefizit stehen, statt fälschlich verloren zu gehen. Für
+        laufzeitbasierte Systeme, die exakt die angeforderte Menge liefern
+        (z.B. Tropfschlauch), ergibt das ohnehin dasselbe wie ein Reset auf 0.
+
+        Wird `amount_mm` NICHT angegeben (z.B. manueller Admin-Reset ohne
+        genaue Mengenangabe), bleibt das alte Verhalten (hart auf 0) erhalten.
+
+        Ein globaler Reset (zone_index=None, z.B. zur Fehlerkorrektur oder
+        beim Saisonwechsel) zählt NICHT als "gegossen" und setzt weiterhin
+        immer hart auf 0.
         """
         if zone_index is None:
             self._deficit = 0.0
@@ -617,7 +628,11 @@ class Et0Coordinator(DataUpdateCoordinator):
             # sofort danach) denken "heute schon gebucht" und nichts addieren.
             self._last_processed_date = None
         else:
-            self._zone_deficits[zone_index] = 0.0
+            if amount_mm is not None:
+                current = self._zone_deficits.get(zone_index, 0.0)
+                self._zone_deficits[zone_index] = max(current - amount_mm, -10.0)
+            else:
+                self._zone_deficits[zone_index] = 0.0
             self._last_watered[zone_index] = {
                 "timestamp": dt_util.now().isoformat(),
                 "amount_mm": amount_mm,
