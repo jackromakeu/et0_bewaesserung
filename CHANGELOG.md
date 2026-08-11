@@ -2,6 +2,11 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.2.1]
+
+### Fixed
+- Zonen-Namensvergleich in `reset_deficit` schlug fehl, obwohl der übergebene Name optisch exakt mit dem konfigurierten Zonennamen übereinstimmte ("Zone 'Sträucher' nicht gefunden"). Ursache: unterschiedliche Unicode-Normalisierung von Umlauten (NFC vs. NFD) je nach Eingabequelle (Config-UI vs. YAML-Editor). Der Vergleich normalisiert beide Seiten jetzt vor dem Abgleich (`unicodedata.normalize("NFC", ...)`, zusätzlich mit `.strip()`).
+
 ## [1.2.0]
 
 ### Added
