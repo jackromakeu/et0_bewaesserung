@@ -70,6 +70,8 @@ class Et0Coordinator(DataUpdateCoordinator):
         self._last_known_values: dict[str, dict] = {}
         self._fallback_used_this_run: set[str] = set()
         self._last_watered: dict[int, dict] = {}
+        self._today_contribution_global: float = 0.0
+        self._today_contribution: dict[int, float] = {}
         self._season_active: bool = True
         self._equipment_stored: bool = False
         self._frost_warning_active: bool = False
@@ -90,6 +92,12 @@ class Et0Coordinator(DataUpdateCoordinator):
             self._last_known_values = stored.get("last_known_values", {})
             self._last_watered = {
                 int(k): v for k, v in stored.get("last_watered", {}).items()
+            }
+            self._today_contribution_global = stored.get(
+                "today_contribution_global", 0.0
+            )
+            self._today_contribution = {
+                int(k): v for k, v in stored.get("today_contribution", {}).items()
             }
             self._season_active = stored.get("season_active", True)
             self._equipment_stored = stored.get("equipment_stored", False)
@@ -182,6 +190,8 @@ class Et0Coordinator(DataUpdateCoordinator):
                 "last_processed_date": self._last_processed_date,
                 "last_known_values": self._last_known_values,
                 "last_watered": self._last_watered,
+                "today_contribution_global": self._today_contribution_global,
+                "today_contribution": self._today_contribution,
                 "season_active": self._season_active,
                 "equipment_stored": self._equipment_stored,
                 "frost_warning_active": self._frost_warning_active,
@@ -509,16 +519,21 @@ class Et0Coordinator(DataUpdateCoordinator):
 
         if is_new_day:
             # --- Globale Referenzbilanz (Kc=1, Referenzgras) ---
-            self._deficit = max(self._deficit + result["et0"] - precipitation, -10.0)
+            global_delta = result["et0"] - precipitation
+            self._deficit = max(self._deficit + global_delta, -10.0)
+            self._today_contribution_global = global_delta
+            self._today_contribution = {}
 
             # --- Bilanz je Zone (Kc-gewichtet) ---
             zones_data: dict[int, dict] = {}
             for zone in self.get_zone_definitions():
                 idx = zone["index"]
                 etc = calculate_etc(result["et0"], zone["kc"])
+                zone_delta = etc - precipitation
                 prev_deficit = self._zone_deficits.get(idx, 0.0)
-                new_deficit = max(prev_deficit + etc - precipitation, -10.0)
+                new_deficit = max(prev_deficit + zone_delta, -10.0)
                 self._zone_deficits[idx] = new_deficit
+                self._today_contribution[idx] = zone_delta
 
                 min_interval_ok, days_since_watered = self._min_interval_status(
                     idx, zone["min_days"]
@@ -545,6 +560,7 @@ class Et0Coordinator(DataUpdateCoordinator):
                     "watering_allowed": watering_allowed,
                     "last_watered_timestamp": watered_info.get("timestamp"),
                     "last_watered_amount_mm": watered_info.get("amount_mm"),
+                    "today_contribution_mm": round(self._today_contribution.get(idx, 0.0), 2),
                 }
 
             self._last_processed_date = today_iso
@@ -580,6 +596,7 @@ class Et0Coordinator(DataUpdateCoordinator):
                     "watering_allowed": watering_allowed,
                     "last_watered_timestamp": watered_info.get("timestamp"),
                     "last_watered_amount_mm": watered_info.get("amount_mm"),
+                    "today_contribution_mm": round(self._today_contribution.get(idx, 0.0), 2),
                 }
             _LOGGER.debug(
                 "ET0-Bilanz heute (%s) bereits gebucht - überspringe erneute Buchung",
@@ -597,7 +614,45 @@ class Et0Coordinator(DataUpdateCoordinator):
         result["equipment_stored"] = self._equipment_stored
         result["frost_warning_active"] = self._frost_warning_active
         result["spring_ready_active"] = self._spring_ready_active
+        # Diagnose-Transparenz: macht den intern verwendeten Buchungs-Zustand
+        # direkt sichtbar, statt ihn aus Verlaufsgraphen rekonstruieren zu
+        # müssen (genau das hat uns schon mehrfach in die Irre geführt).
+        result["last_processed_date"] = self._last_processed_date
+        result["today_contribution_global"] = round(self._today_contribution_global, 2)
         return result
+
+    async def async_force_recalculate(self) -> None:
+        """Macht die heutige Buchung (falls vorhanden) gezielt rückgängig und
+        löst die Tages-Sperre, damit der nächste Refresh heute nochmal neu
+        bucht - z.B. weil ein Testlauf kurz nach Mitternacht mit Rs=0 die
+        korrekte Buchung des Tages vorweggenommen hat.
+
+        Im Gegensatz zu einem globalen reset_deficit werden dabei NUR die
+        heute tatsächlich hinzugefügten Beiträge abgezogen - die Bilanz
+        aus vorangegangenen Tagen bleibt unangetastet.
+        """
+        today_iso = date.today().isoformat()
+        if self._last_processed_date == today_iso:
+            self._deficit = max(
+                self._deficit - self._today_contribution_global, -10.0
+            )
+            for idx, delta in self._today_contribution.items():
+                current = self._zone_deficits.get(idx, 0.0)
+                self._zone_deficits[idx] = max(current - delta, -10.0)
+
+            self._last_processed_date = None
+            self._today_contribution_global = 0.0
+            self._today_contribution = {}
+            await self._persist()
+            _LOGGER.info(
+                "Heutige Buchung zurückgenommen, Tages-Sperre gelöst - "
+                "nächster Refresh bucht neu"
+            )
+        else:
+            _LOGGER.debug(
+                "Force-Recalculate: heute wurde noch gar nicht gebucht, "
+                "nichts zurückzunehmen"
+            )
 
     async def async_reset_deficit(
         self, zone_index: int | None = None, amount_mm: float | None = None

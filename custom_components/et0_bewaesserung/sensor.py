@@ -79,6 +79,8 @@ class Et0Sensor(Et0BaseEntity):
             "regen_erwartet_morgen": d.get("rain_expected"),
             "regen_prognose_morgen_mm": d.get("forecast_precip_mm"),
             "fallback_werte_verwendet": d.get("fallback_used") or "keine",
+            "heute_bereits_gebucht": d.get("last_processed_date"),
+            "heutiger_beitrag_referenz_mm": d.get("today_contribution_global"),
         }
 
 
@@ -161,6 +163,16 @@ class ZoneDeficitSensor(ZoneBaseEntity):
     def native_value(self):
         zone = self._zone_data()
         return zone["deficit"] if zone else None
+
+    @property
+    def extra_state_attributes(self):
+        zone = self._zone_data()
+        if not zone or not self.coordinator.data:
+            return {}
+        return {
+            "heutiger_beitrag_mm": zone.get("today_contribution_mm"),
+            "heute_bereits_gebucht": self.coordinator.data.get("last_processed_date"),
+        }
 
 
 class ZoneDurationSensor(ZoneBaseEntity):
