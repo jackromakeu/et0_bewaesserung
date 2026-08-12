@@ -58,6 +58,22 @@ REQUIRED_ENTITY_FIELDS = (
 )
 
 
+def _optional_entity_key(conf_key: str, defaults: dict):
+    """Erzeugt einen wirklich optionalen Entity-Feld-Key.
+
+    WICHTIG: Kein `default=""` verwenden - ein leerer String ist für den
+    EntitySelector kein gültiger Wert, wodurch das Formular sich nicht mehr
+    speichern lässt, solange das Feld leer bleibt. Stattdessen wird der
+    bestehende Wert nur als `suggested_value` vorbelegt; bleibt das Feld
+    leer, fehlt der Schlüssel im Ergebnis - genau das gewünschte Verhalten
+    für ein optionales Feld.
+    """
+    current = defaults.get(conf_key)
+    if current:
+        return vol.Optional(conf_key, description={"suggested_value": current})
+    return vol.Optional(conf_key)
+
+
 def _build_general_schema(hass: HomeAssistant, defaults: dict) -> vol.Schema:
     return vol.Schema(
         {
@@ -77,9 +93,9 @@ def _build_general_schema(hass: HomeAssistant, defaults: dict) -> vol.Schema:
             vol.Required(
                 CONF_PV_YIELD_ENTITY, default=defaults.get(CONF_PV_YIELD_ENTITY)
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-            vol.Optional(
-                CONF_WEATHER_ENTITY, default=defaults.get(CONF_WEATHER_ENTITY, "")
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="weather")),
+            _optional_entity_key(CONF_WEATHER_ENTITY, defaults): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="weather")
+            ),
             vol.Required(
                 CONF_LATITUDE,
                 default=defaults.get(CONF_LATITUDE, hass.config.latitude),
@@ -132,9 +148,9 @@ def _build_general_schema(hass: HomeAssistant, defaults: dict) -> vol.Schema:
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=50, step=0.5, mode="box")
             ),
-            vol.Optional(
-                CONF_RAIN_SENSOR, default=defaults.get(CONF_RAIN_SENSOR, "")
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            _optional_entity_key(CONF_RAIN_SENSOR, defaults): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
             vol.Required(
                 CONF_RAIN_EFFECTIVENESS,
                 default=defaults.get(
