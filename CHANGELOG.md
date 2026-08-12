@@ -2,6 +2,11 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.6.1]
+
+### Fixed
+- **Datenverlust beim Update von 1.4.0 auf 1.5.0/1.6.0**: In 1.5.0 wurde der Storage-Schlüssel `carry_deficit` zu `season_et0_carry` umbenannt - inklusive der Format-Erkennung beim Laden. Ein von 1.4.0 geschriebener Speicher wurde dadurch fälschlich als "ganz altes Format" eingestuft, worauf die Migration nach dem Schlüssel `zone_deficits` suchte, den 1.4.0 gar nicht mehr schrieb (dort: `zone_carry`). Ergebnis: **alle Zonen-Defizite wurden beim Update auf 0 zurückgesetzt.** Die Format-Erkennung berücksichtigt jetzt alle drei Storage-Generationen.
+
 ## [1.6.0]
 
 ### Fixed
