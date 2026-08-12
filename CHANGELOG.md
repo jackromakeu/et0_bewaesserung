@@ -2,6 +2,11 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.7.2]
+
+### Fixed
+- **Optionale Entity-Felder liessen sich nicht leer lassen.** `rain_sensor_entity` (neu in 1.6.0) und `weather_entity` waren zwar als `vol.Optional` deklariert, hatten aber `default=""` - ein leerer String ist für den `EntitySelector` kein gültiger Wert, wodurch das Konfigurationsformular nicht mehr gespeichert werden konnte, solange kein Sensor ausgewählt war. Beide Felder verwenden jetzt `suggested_value` statt eines Defaults: Bleibt das Feld leer, fehlt der Schlüssel schlicht im Ergebnis - das korrekte Verhalten für ein optionales Feld.
+
 ## [1.7.1]
 
 ### Fixed
