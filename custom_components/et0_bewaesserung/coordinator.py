@@ -109,10 +109,24 @@ class Et0Coordinator(DataUpdateCoordinator):
             self._frost_warning_active = stored.get("frost_warning_active", False)
             self._spring_ready_active = stored.get("spring_ready_active", False)
 
-            if "season_et0_carry" in stored:
-                # Neues Format (v1.4.0+)
-                self._season_et0_carry = stored.get("season_et0_carry", 0.0)
-                self._today_et0 = stored.get("today_et0", 0.0)
+            # --- Format-Erkennung über drei Storage-Generationen ---
+            # v1.5.0+ : season_et0_carry / zone_carry
+            # v1.4.0  : carry_deficit    / zone_carry   (nur umbenannt!)
+            # <=v1.3.x: deficit          / zone_deficits (additives Altformat)
+            # Wichtig: v1.4.0 und v1.5.0 unterscheiden sich NUR im Namen des
+            # globalen Schlüssels - die Zonendaten liegen in beiden unter
+            # "zone_carry". Wer das übersieht, verliert beim Update genau
+            # diese Zonendaten (Bug in 1.5.0/1.6.0, hier behoben).
+            has_v15 = "season_et0_carry" in stored
+            has_v14 = "carry_deficit" in stored
+
+            if has_v15 or has_v14:
+                self._season_et0_carry = stored.get(
+                    "season_et0_carry", stored.get("carry_deficit", 0.0)
+                )
+                self._today_et0 = stored.get(
+                    "today_et0", stored.get("today_deficit", 0.0)
+                )
                 self._zone_carry = {
                     int(k): v for k, v in stored.get("zone_carry", {}).items()
                 }
@@ -120,6 +134,14 @@ class Et0Coordinator(DataUpdateCoordinator):
                     int(k): v for k, v in stored.get("zone_today", {}).items()
                 }
                 self._current_day = stored.get("current_day")
+                if has_v14 and not has_v15:
+                    # Der alte globale Wert war eine Bilanz, keine ET0-Summe
+                    # -> als Saisonsumme nicht sinnvoll weiterverwendbar.
+                    self._season_et0_carry = 0.0
+                    _LOGGER.info(
+                        "Storage von v1.4.0 gelesen: Zonen-Defizite übernommen, "
+                        "ET0-Saisonsumme startet neu bei 0"
+                    )
             else:
                 # --- Migration vom alten additiven Format ---
                 # Zonen: das alte "zone_deficits" enthielt bereits ALLES inkl.
