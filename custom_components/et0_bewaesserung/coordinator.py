@@ -27,6 +27,10 @@ from .const import (
     CONF_ELEVATION,
     CONF_KWP,
     CONF_PERFORMANCE_RATIO,
+    CONF_PV_TILT,
+    DEFAULT_PV_TILT,
+    CONF_PV_AZIMUTH,
+    DEFAULT_PV_AZIMUTH,
     CONF_UPDATE_TIME,
     DEFAULT_UPDATE_TIME,
     ALBEDO,
@@ -95,6 +99,7 @@ class Et0Coordinator(DataUpdateCoordinator):
         self._spring_ready_active: bool = False
         self._unsub_time = None
         self._unsub_retry = None
+        self._unsub_rollover = None
 
     async def async_setup(self) -> None:
         """Lädt gespeicherte Werte und registriert den täglichen Trigger."""
@@ -202,11 +207,80 @@ class Et0Coordinator(DataUpdateCoordinator):
                 self.hass, self._handle_scheduled_update, hour=h, minute=m, second=s
             )
 
+        # --- Mitternachts-Rollover ---
+        # ZWINGEND nötig: Ohne diesen Timer wandert der Beitrag des
+        # abgelaufenen Tages erst beim NÄCHSTEN Berechnungslauf (23:09) nach
+        # carry - die Bewässerung um ~5 Uhr würde bis dahin mit einem einen
+        # Tag alten Defizit arbeiten. Läuft kurz nach Mitternacht, damit die
+        # Gieß-Automation am Morgen den aktuellen Wert vorfindet.
+        self._unsub_rollover = async_track_time_change(
+            self.hass, self._handle_midnight_rollover, hour=0, minute=0, second=30
+        )
+
+    @callback
+    def _handle_midnight_rollover(self, now) -> None:
+        self.hass.async_create_task(self._async_do_midnight_rollover())
+
+    async def _async_do_midnight_rollover(self) -> None:
+        """Schiebt den Tagesbeitrag nach carry und aktualisiert die Sensoren.
+
+        Bewusst OHNE Neuberechnung: Um Mitternacht steht der PV-Ertrag auf 0,
+        eine ET0-Berechnung würde hier unbrauchbare Werte liefern. Es werden
+        nur die vorhandenen Werte umgebucht.
+        """
+        if self._rollover_if_needed():
+            await self._persist()
+            # Sensoren mit dem umgebuchten Stand aktualisieren, ohne die
+            # ET0-Werte neu zu berechnen
+            if self.data:
+                new_data = dict(self.data)
+                new_data["season_et0_sum"] = round(
+                    self._season_et0_carry + self._today_et0, 2
+                )
+                new_data["today_contribution_global"] = round(self._today_et0, 2)
+                new_data["current_day"] = self._current_day
+                zones = dict(new_data.get("zones", {}))
+                for idx, zdata in zones.items():
+                    carry = self._zone_carry.get(idx, 0.0)
+                    zd = dict(zdata)
+                    zd["deficit"] = round(carry, 2)
+                    zd["deficit_running"] = round(
+                        max(carry + self._zone_today.get(idx, 0.0), -10.0), 2
+                    )
+                    zd["today_contribution_mm"] = round(
+                        self._zone_today.get(idx, 0.0), 2
+                    )
+                    # Gieß-Freigabe mit dem neuen carry neu bewerten
+                    for zone in self.get_zone_definitions():
+                        if zone["index"] != idx:
+                            continue
+                        min_ok, days_since = self._min_interval_status(
+                            idx, zone["min_days"]
+                        )
+                        min_def_ok = carry >= zone["min_deficit_mm"]
+                        allowed = (
+                            not zd.get("rain_skip", False) and min_ok and min_def_ok
+                        )
+                        zd["min_interval_ok"] = min_ok
+                        zd["days_since_watered"] = days_since
+                        zd["min_deficit_ok"] = min_def_ok
+                        zd["watering_allowed"] = allowed
+                        zd["duration_min"] = (
+                            round(max(carry, 0.0) / zone["drip_rate"], 1)
+                            if allowed and zone["drip_rate"] > 0
+                            else 0.0
+                        )
+                    zones[idx] = zd
+                new_data["zones"] = zones
+                self.async_set_updated_data(new_data)
+
     def async_unload(self) -> None:
         if self._unsub_time:
             self._unsub_time()
         if self._unsub_retry:
             self._unsub_retry()
+        if self._unsub_rollover:
+            self._unsub_rollover()
 
     @callback
     def _handle_scheduled_update(self, now) -> None:
@@ -547,6 +621,8 @@ class Et0Coordinator(DataUpdateCoordinator):
             latitude=latitude,
             elevation=elevation,
             albedo=ALBEDO,
+            tilt=float(self._get_config(CONF_PV_TILT, DEFAULT_PV_TILT)),
+            azimuth=float(self._get_config(CONF_PV_AZIMUTH, DEFAULT_PV_AZIMUTH)),
         )
 
         # --- Niederschlag des HEUTIGEN Tages für die Bilanz ---

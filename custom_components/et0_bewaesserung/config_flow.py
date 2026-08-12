@@ -23,6 +23,10 @@ from .const import (
     CONF_UPDATE_TIME,
     DEFAULT_UPDATE_TIME,
     DEFAULT_PERFORMANCE_RATIO,
+    CONF_PV_TILT,
+    DEFAULT_PV_TILT,
+    CONF_PV_AZIMUTH,
+    DEFAULT_PV_AZIMUTH,
     MAX_ZONES,
     DEFAULT_ZONE_NAMES,
     DEFAULT_ZONE_KC,
@@ -100,6 +104,17 @@ def _build_general_schema(hass: HomeAssistant, defaults: dict) -> vol.Schema:
                 default=defaults.get(CONF_PERFORMANCE_RATIO, DEFAULT_PERFORMANCE_RATIO),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0.5, max=1.0, step=0.01, mode="box")
+            ),
+            vol.Required(
+                CONF_PV_TILT, default=defaults.get(CONF_PV_TILT, DEFAULT_PV_TILT)
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=90, step=1, mode="box")
+            ),
+            vol.Required(
+                CONF_PV_AZIMUTH,
+                default=defaults.get(CONF_PV_AZIMUTH, DEFAULT_PV_AZIMUTH),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=-180, max=180, step=1, mode="box")
             ),
             vol.Required(
                 CONF_UPDATE_TIME,

@@ -21,7 +21,9 @@
           "frost_threshold_c": "Frost-Schwelle (°C)",
           "spring_earliest_date": "Frühestes Frühjahrs-Datum (MM-TT)",
           "rain_sensor_entity": "Sensor gemessener Tagesniederschlag (mm, optional)",
-          "rain_effectiveness": "Regen-Wirksamkeitsfaktor (1.0 = voll anrechnen)"
+          "rain_effectiveness": "Regen-Wirksamkeitsfaktor (1.0 = voll anrechnen)",
+          "pv_tilt": "PV-Dachneigung (Grad, 0 = Korrektur aus)",
+          "pv_azimuth": "PV-Ausrichtung (0 = Süd, -90 = Ost, +90 = West)"
         }
       },
       "zones": {
@@ -74,7 +76,9 @@
           "frost_threshold_c": "Frost-Schwelle (°C)",
           "spring_earliest_date": "Frühestes Frühjahrs-Datum (MM-TT)",
           "rain_sensor_entity": "Sensor gemessener Tagesniederschlag (mm, optional)",
-          "rain_effectiveness": "Regen-Wirksamkeitsfaktor (1.0 = voll anrechnen)"
+          "rain_effectiveness": "Regen-Wirksamkeitsfaktor (1.0 = voll anrechnen)",
+          "pv_tilt": "PV-Dachneigung (Grad, 0 = Korrektur aus)",
+          "pv_azimuth": "PV-Ausrichtung (0 = Süd, -90 = Ost, +90 = West)"
         }
       },
       "zones": {

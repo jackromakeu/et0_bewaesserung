@@ -74,6 +74,8 @@ class Et0Sensor(Et0BaseEntity):
         d = self.coordinator.data
         return {
             "rs_mj_m2": d.get("rs"),
+            "rs_modulebene_mj_m2": d.get("rs_poa"),
+            "neigungskorrektur_faktor": d.get("transposition_factor"),
             "rn_mj_m2": d.get("rn"),
             "tmean": d.get("tmean"),
             "u2_m_s": d.get("u2"),

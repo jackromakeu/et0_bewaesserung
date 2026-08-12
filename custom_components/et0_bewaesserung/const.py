@@ -17,6 +17,14 @@ CONF_UPDATE_TIME = "update_time"
 
 DEFAULT_UPDATE_TIME = "23:30:00"
 DEFAULT_PERFORMANCE_RATIO = 0.80
+# --- PV-Geometrie für die Umrechnung Modulebene -> Horizontale ---
+# Ohne diese Korrektur wird die Strahlung systematisch überschätzt, weil
+# geneigte Module (besonders im Winter) mehr Einstrahlung erhalten als eine
+# horizontale Fläche. 0 = Korrektur deaktiviert (Verhalten wie vor v1.7.0).
+CONF_PV_TILT = "pv_tilt"
+DEFAULT_PV_TILT = 35.0
+CONF_PV_AZIMUTH = "pv_azimuth"
+DEFAULT_PV_AZIMUTH = 0.0  # 0 = Süd, -90 = Ost, +90 = West
 ALBEDO = 0.23
 
 STORAGE_VERSION = 1
