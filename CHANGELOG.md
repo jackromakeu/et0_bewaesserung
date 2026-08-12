@@ -2,6 +2,26 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.6.0]
+
+### Fixed
+- **Niederschlagsabzug war tageszeitabhängig zufällig und konzeptionell falsch.** Bisher wurde das `precipitation`-Attribut der weather-Entity gelesen - das ist aber ein Momentan-/Prognosewert des aktuellen Vorhersageintervalls, kein Tagesniederschlag. Ein Gewitter um 15 Uhr war beim Abendlauf um 23 Uhr längst nicht mehr sichtbar und fehlte damit vollständig in der Bilanz. Jetzt wird die **Tagessumme** über `weather.get_forecasts` ermittelt (dieselbe Mechanik wie beim Regen-Skip).
+
+### Added
+- **Optionaler Sensor für gemessenen Tagesniederschlag** (`rain_sensor_entity`): Ist er konfiguriert (z.B. von einer eigenen Wetterstation), hat er Vorrang vor der Vorhersage - gemessen schlägt prognostiziert. Fällt er aus, wird automatisch auf die Prognose zurückgegriffen. Behandelt wird er als Tageszähler (`daily_reset=True`), d.h. kein Fallback über Mitternacht hinweg.
+- **Regen-Wirksamkeitsfaktor** (`rain_effectiveness`, Standard 1.0): Nicht jeder mm Regen erreicht die Wurzelzone - bei Starkregen fließt ein Teil oberflächlich ab. 1.0 rechnet Regen voll an (spart Wasser, gießt seltener), 0.7-0.8 ist die konservative Einstellung (gießt häufiger).
+- Neue Diagnose-Attribute an `ET0 Saisonsumme`: `niederschlag_angerechnet_mm`, `niederschlag_roh_mm` und `niederschlag_quelle` (gemessen/prognose/keine) - macht auf einen Blick nachvollziehbar, woher der Regenwert kam.
+
+## [1.5.0]
+
+### Changed
+- **`Bewässerungsdefizit` (global) → `ET0 Saisonsumme`**: Der globale Sensor war ein Überbleibsel aus der Zeit vor den Zonen. Er wurde von nichts mehr verwendet, aber auch von nichts mehr zurückgesetzt (Bewässerung reduziert nur die Zonen-Bilanzen) - und wuchs dadurch als vermeintliche "Bilanz" unbegrenzt an. Er zeigt jetzt ehrlich das, was er tatsächlich ist: die **kumulierte ET0-Verdunstung seit Saisonstart**. Kein Niederschlagsabzug, keine Bewässerungsverrechnung, Reset nur beim Saisonwechsel. `state_class` entsprechend auf `total` geändert.
+- Für die Gieß-Entscheidung sind unverändert ausschließlich die zonenspezifischen Sensoren maßgeblich - an den Automationen ändert sich nichts.
+
+### Migration
+- Der bisherige globale Wert war eine (nie zurückgesetzte) Bilanz und lässt sich nicht sinnvoll in eine ET0-Summe umrechnen → die Saisonsumme startet einmalig sauber bei 0. Die Zonen-Defizite bleiben unverändert erhalten.
+- **Hinweis:** Die Entity-ID bleibt aus Kompatibilitätsgründen unverändert (`..._bewasserungsdefizit`), nur der Anzeigename ändert sich. Wer die ID angleichen möchte, kann sie einmalig manuell über Einstellungen → Entitäten umbenennen.
+
 ## [1.4.0] - Datenmodell-Umbau: Tages-Sperre entfällt
 
 Die bisherige Buchungslogik war **additiv** (`defizit += ETc`). Weil man bei einer Addition zwangsläufig verhindern muss, dass zweimal addiert wird, brauchte es eine "Tages-Sperre" - und die hat eine ganze Reihe von Folgeproblemen erzeugt (blockierte Korrekturen, verfälschte Werte durch Testläufe zur falschen Zeit, ein `force`-Flag als Krücke für die Krücke). Diese Version ersetzt das Fundament durch ein Modell, in dem die Berechnung **idempotent** ist.
