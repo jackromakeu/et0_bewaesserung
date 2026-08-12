@@ -2,6 +2,25 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.7.1]
+
+### Fixed
+- **Bewässerung hinkte seit 1.4.0 einen Tag hinterher.** Beim Datenmodell-Umbau wurde zwar die Nachhol-Prüfung des Tageswechsels implementiert (`_rollover_if_needed`), aber der eigentliche **Mitternachts-Timer fehlte**. Da die Prüfung nur innerhalb der Berechnung lief und diese nur einmal täglich (23:09) stattfindet, wanderte der Tagesbeitrag erst ~23 Stunden zu spät nach `carry`. Die Gieß-Automation am Morgen las dadurch ein um einen Tag veraltetes Defizit - im Extremfall wurde gar nicht gegossen, obwohl Bedarf bestand.
+- Neuer Timer um 00:00:30, der ausschließlich umbucht und die Sensoren aktualisiert - bewusst **ohne** ET0-Neuberechnung, da der PV-Ertrag um Mitternacht auf 0 steht und eine Berechnung dort unbrauchbare Werte liefern würde. Die Gieß-Freigabe (Mindestabstand/Mindestdefizit/Dauer) wird mit dem neuen `carry` direkt neu bewertet.
+
+## [1.7.0]
+
+### Added
+- **Neigungskorrektur der PV-Strahlung (Modulebene → Horizontale).** Bisher wurde der aus dem PV-Ertrag abgeleitete Strahlungswert direkt als horizontale Globalstrahlung verwendet. Tatsächlich messen PV-Module aber die Einstrahlung auf die *geneigte* Modulebene, während FAO-56 die *horizontale* Fläche braucht - das war die größte systematische Fehlerquelle der Näherung (Überschätzung von ET0, im Winter/Übergang besonders deutlich).
+  - Verfahren: Rb-Geometriefaktor nach Liu & Jordan (Tageswerte), Diffusanteil nach Erbs-Korrelation aus dem Clearness-Index, isotropes Himmelsmodell für Diffus- und Bodenreflexion. Da der Diffusanteil vom gesuchten Horizontalwert abhängt, wird iterativ gelöst.
+  - Neue Konfigurationsfelder: **PV-Dachneigung** (Grad, Standard 35, `0` deaktiviert die Korrektur) und **PV-Ausrichtung** (0 = Süd, −90 = Ost, +90 = West).
+  - Neue Diagnose-Attribute an `ET0 Tagesreferenz`: `rs_modulebene_mj_m2` (Rohwert vor Korrektur) und `neigungskorrektur_faktor`.
+  - Größenordnung bei 35° Süd: Faktor ~1,02 im Hochsommer, ~1,13 im Frühjahr, ~1,17 im Herbst - bei Bewölkung unter 1, da dann der Diffusanteil dominiert und eine geneigte Fläche weniger Himmel sieht.
+
+### Bekannte Grenzen
+- Der Ansatz behandelt nur eine einzelne Modulfläche mit einheitlicher Neigung/Ausrichtung. Bei Ost-West-Anlagen oder mehreren unterschiedlich ausgerichteten Teilflächen ist die Korrektur nicht anwendbar (Feld auf `0` setzen).
+- Der verbleibende Fehler der PV-Näherung (Performance Ratio als fester Sammelwert, Temperaturabhängigkeit des Modulwirkungsgrads, Verschmutzung) bleibt bestehen.
+
 ## [1.6.1]
 
 ### Fixed
