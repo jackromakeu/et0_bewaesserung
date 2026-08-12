@@ -41,6 +41,9 @@ from .const import (
     CONF_RAIN_SKIP_THRESHOLD,
     DEFAULT_RAIN_SKIP_ENABLED,
     DEFAULT_RAIN_SKIP_THRESHOLD,
+    CONF_RAIN_SENSOR,
+    CONF_RAIN_EFFECTIVENESS,
+    DEFAULT_RAIN_EFFECTIVENESS,
     RETRY_DELAY_MINUTES,
     MAX_RETRIES,
     DIAGNOSE_MODE,
@@ -65,16 +68,21 @@ class Et0Coordinator(DataUpdateCoordinator):
         self.entry = entry
         self._store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry.entry_id}")
         # --- Datenmodell (seit v1.4.0, ersetzt die additive Buchung + Tages-Sperre) ---
-        # carry  = aufgelaufenes Defizit ABGESCHLOSSENER Tage, abzüglich Bewässerung.
-        #          Das ist die Basis für die morgendliche Bewässerung.
+        # Global: _season_et0_carry/_today_et0 bilden KEINE Bilanz mehr,
+        #          sondern die reine kumulierte ET0-Verdunstung seit
+        #          Saisonstart (Statistik). Zurückgesetzt nur beim
+        #          Saisonwechsel - die Bewässerung nutzt ausschließlich die
+        #          zonenspezifischen Werte unten.
+        # Zonen: carry = aufgelaufenes Defizit ABGESCHLOSSENER Tage, abzüglich
+        #          Bewässerung. Das ist die Basis für die morgendliche Bewässerung.
         # today  = ETc minus Niederschlag des LAUFENDEN Tages. Wird bei jeder
         #          Berechnung ÜBERSCHRIEBEN, nie addiert -> beliebig oft
         #          wiederholbar ohne Verfälschung (idempotent). Genau deshalb
         #          ist keine Tages-Sperre mehr nötig.
         # current_day = auf welchen Kalendertag sich "today" bezieht. Beim
         #          Tageswechsel wandert today in carry (Rollover).
-        self._carry_deficit = 0.0
-        self._today_deficit = 0.0
+        self._season_et0_carry = 0.0
+        self._today_et0 = 0.0
         self._zone_carry: dict[int, float] = {}
         self._zone_today: dict[int, float] = {}
         self._current_day: str | None = None
@@ -101,10 +109,10 @@ class Et0Coordinator(DataUpdateCoordinator):
             self._frost_warning_active = stored.get("frost_warning_active", False)
             self._spring_ready_active = stored.get("spring_ready_active", False)
 
-            if "carry_deficit" in stored:
+            if "season_et0_carry" in stored:
                 # Neues Format (v1.4.0+)
-                self._carry_deficit = stored.get("carry_deficit", 0.0)
-                self._today_deficit = stored.get("today_deficit", 0.0)
+                self._season_et0_carry = stored.get("season_et0_carry", 0.0)
+                self._today_et0 = stored.get("today_et0", 0.0)
                 self._zone_carry = {
                     int(k): v for k, v in stored.get("zone_carry", {}).items()
                 }
@@ -114,39 +122,34 @@ class Et0Coordinator(DataUpdateCoordinator):
                 self._current_day = stored.get("current_day")
             else:
                 # --- Migration vom alten additiven Format ---
-                # Das alte "deficit" enthielt bereits ALLES inkl. des heutigen
-                # Beitrags. Wir übernehmen es vollständig als carry und starten
-                # today bei 0 - der nächste Lauf berechnet today dann sauber neu.
-                # Kleiner Schönheitsfehler: der heutige Beitrag steckt dadurch
-                # einmalig doppelt drin (in carry UND neu in today). Deshalb
-                # ziehen wir den bekannten heutigen Beitrag hier direkt ab.
-                old_today_global = stored.get("today_contribution_global", 0.0)
+                # Zonen: das alte "zone_deficits" enthielt bereits ALLES inkl.
+                # des heutigen Beitrags. Wir übernehmen es als carry und
+                # rechnen den bekannten heutigen Beitrag heraus, damit er
+                # nicht doppelt zählt (einmal in carry, einmal neu in today).
                 old_today_zones = {
                     int(k): v for k, v in stored.get("today_contribution", {}).items()
                 }
                 old_processed = stored.get("last_processed_date")
                 today_iso = date.today().isoformat()
 
-                self._carry_deficit = stored.get("deficit", 0.0)
                 self._zone_carry = {
                     int(k): v for k, v in stored.get("zone_deficits", {}).items()
                 }
                 if old_processed == today_iso:
-                    self._carry_deficit = max(
-                        self._carry_deficit - old_today_global, -10.0
-                    )
                     for idx, delta in old_today_zones.items():
                         self._zone_carry[idx] = max(
                             self._zone_carry.get(idx, 0.0) - delta, -10.0
                         )
-                self._today_deficit = 0.0
+                # Global: der alte Wert war eine (nie zurückgesetzte) Bilanz,
+                # nicht die kumulierte Verdunstung. Er lässt sich nicht sinnvoll
+                # in eine ET0-Saisonsumme umrechnen -> sauberer Neustart bei 0.
+                self._season_et0_carry = 0.0
+                self._today_et0 = 0.0
                 self._zone_today = {}
                 self._current_day = today_iso
                 _LOGGER.info(
-                    "Datenmodell auf carry/today migriert (carry=%.2f, "
-                    "heutiger Beitrag %.2f herausgerechnet)",
-                    self._carry_deficit,
-                    old_today_global if old_processed == today_iso else 0.0,
+                    "Datenmodell migriert: Zonen-Defizite übernommen, "
+                    "ET0-Saisonsumme startet neu bei 0"
                 )
 
         update_time = self.entry.options.get(
@@ -230,8 +233,8 @@ class Et0Coordinator(DataUpdateCoordinator):
         """Speichert den kompletten persistenten Zustand an einer Stelle."""
         await self._store.async_save(
             {
-                "carry_deficit": self._carry_deficit,
-                "today_deficit": self._today_deficit,
+                "season_et0_carry": self._season_et0_carry,
+                "today_et0": self._today_et0,
                 "zone_carry": self._zone_carry,
                 "zone_today": self._zone_today,
                 "current_day": self._current_day,
@@ -258,9 +261,7 @@ class Et0Coordinator(DataUpdateCoordinator):
             return False
 
         if self._current_day is not None:
-            self._carry_deficit = max(
-                self._carry_deficit + self._today_deficit, -10.0
-            )
+            self._season_et0_carry = self._season_et0_carry + self._today_et0
             for idx, val in self._zone_today.items():
                 self._zone_carry[idx] = max(
                     self._zone_carry.get(idx, 0.0) + val, -10.0
@@ -270,11 +271,11 @@ class Et0Coordinator(DataUpdateCoordinator):
                 "(neu: %.2f mm)",
                 self._current_day,
                 today_iso,
-                self._today_deficit,
-                self._carry_deficit,
+                self._today_et0,
+                self._season_et0_carry,
             )
 
-        self._today_deficit = 0.0
+        self._today_et0 = 0.0
         self._zone_today = {}
         self._current_day = today_iso
         return True
@@ -408,12 +409,17 @@ class Et0Coordinator(DataUpdateCoordinator):
             "und es existiert kein ausreichend aktueller Fallback-Wert"
         )
 
-    async def _get_forecast_precipitation_tomorrow(self, weather_entity: str) -> float:
-        """Vorhergesagter Niederschlag für morgen (mm) über weather.get_forecasts.
+    async def _get_forecast_precipitation(
+        self, weather_entity: str, target_date: date
+    ) -> float:
+        """Vorhergesagter/prognostizierter Tagesniederschlag (mm) für target_date.
 
-        Gibt 0.0 zurück, wenn die Abfrage fehlschlägt oder kein Tageswert für
-        morgen gefunden wird - die Regen-Skip-Prüfung ist ein "nice to have"
-        und darf den eigentlichen ET0-Lauf niemals zum Absturz bringen.
+        Wird für zwei Zwecke genutzt:
+        - target_date = morgen  -> Regen-Skip (soll morgen gegossen werden?)
+        - target_date = heute   -> Niederschlagsabzug in der Tagesbilanz
+
+        Gibt 0.0 zurück, wenn die Abfrage fehlschlägt - die Regen-Logik ist
+        ein "nice to have" und darf den ET0-Lauf nie zum Absturz bringen.
         """
         try:
             response = await self.hass.services.async_call(
@@ -429,12 +435,12 @@ class Et0Coordinator(DataUpdateCoordinator):
             return 0.0
 
         forecasts = (response or {}).get(weather_entity, {}).get("forecast", [])
-        tomorrow_iso = (date.today() + timedelta(days=1)).isoformat()
+        target_iso = target_date.isoformat()
 
         total = 0.0
         for entry in forecasts:
             entry_date = str(entry.get("datetime", ""))[:10]
-            if entry_date == tomorrow_iso:
+            if entry_date == target_iso:
                 total += float(entry.get("precipitation") or 0.0)
         return total
 
@@ -521,16 +527,42 @@ class Et0Coordinator(DataUpdateCoordinator):
             albedo=ALBEDO,
         )
 
-        precipitation = 0.0
+        # --- Niederschlag des HEUTIGEN Tages für die Bilanz ---
+        # Priorität: gemessener Wert (eigene Wetterstation) > Tagessumme aus
+        # der Vorhersage. Der frühere Ansatz las das "precipitation"-Attribut
+        # der weather-Entity - das ist aber ein Momentan-/Prognosewert des
+        # aktuellen Intervalls, kein Tagesniederschlag: ein Gewitter um 15 Uhr
+        # war um 23 Uhr längst nicht mehr sichtbar und fehlte in der Bilanz.
         weather_entity = self._get_config(CONF_WEATHER_ENTITY)
-        if weather_entity:
-            weather_state = self.hass.states.get(weather_entity)
-            if weather_state:
-                precipitation = float(
-                    weather_state.attributes.get("precipitation", 0.0) or 0.0
-                )
+        rain_sensor = self._get_config(CONF_RAIN_SENSOR)
+        rain_effectiveness = float(
+            self._get_config(CONF_RAIN_EFFECTIVENESS, DEFAULT_RAIN_EFFECTIVENESS)
+        )
 
-        # --- Vorausschauender Regen-Skip ---
+        precipitation_raw = 0.0
+        precipitation_source = "keine"
+        if rain_sensor:
+            try:
+                precipitation_raw = self._get_float_state(rain_sensor, daily_reset=True)
+                precipitation_source = "gemessen"
+            except HomeAssistantError as err:
+                _LOGGER.warning(
+                    "Regen-Messsensor %s nicht nutzbar (%s) - weiche auf die "
+                    "Vorhersage aus",
+                    rain_sensor,
+                    err,
+                )
+        if precipitation_source == "keine" and weather_entity:
+            precipitation_raw = await self._get_forecast_precipitation(
+                weather_entity, date.today()
+            )
+            precipitation_source = "prognose"
+
+        # Wirksamkeitsfaktor: nicht jeder mm Regen erreicht die Wurzelzone
+        # (Oberflächenabfluss bei Starkregen).
+        precipitation = precipitation_raw * rain_effectiveness
+
+        # --- Vorausschauender Regen-Skip (Prognose für MORGEN) ---
         rain_skip_enabled = bool(
             self._get_config(CONF_RAIN_SKIP_ENABLED, DEFAULT_RAIN_SKIP_ENABLED)
         )
@@ -539,8 +571,8 @@ class Et0Coordinator(DataUpdateCoordinator):
         )
         forecast_precip_mm = 0.0
         if rain_skip_enabled and weather_entity:
-            forecast_precip_mm = await self._get_forecast_precipitation_tomorrow(
-                weather_entity
+            forecast_precip_mm = await self._get_forecast_precipitation(
+                weather_entity, date.today() + timedelta(days=1)
             )
         rain_expected = forecast_precip_mm >= rain_skip_threshold
 
@@ -599,7 +631,7 @@ class Et0Coordinator(DataUpdateCoordinator):
         # --- IDEMPOTENTE Berechnung: "today" wird ÜBERSCHRIEBEN, nie addiert.
         #     Dadurch ist beliebig häufiges Neuberechnen am selben Tag
         #     unschädlich - eine Tages-Sperre ist nicht mehr nötig. ---
-        self._today_deficit = result["et0"] - precipitation
+        self._today_et0 = result["et0"]
 
         zones_data: dict[int, dict] = {}
         for zone in self.get_zone_definitions():
@@ -642,13 +674,14 @@ class Et0Coordinator(DataUpdateCoordinator):
 
         await self._persist()
 
-        result["deficit"] = round(self._carry_deficit, 2)
-        result["deficit_running"] = round(
-            max(self._carry_deficit + self._today_deficit, -10.0), 2
+        result["season_et0_sum"] = round(
+            self._season_et0_carry + self._today_et0, 2
         )
-        result["today_contribution_global"] = round(self._today_deficit, 2)
+        result["today_contribution_global"] = round(self._today_et0, 2)
         result["current_day"] = self._current_day
-        result["precipitation"] = precipitation
+        result["precipitation"] = round(precipitation, 2)
+        result["precipitation_raw"] = round(precipitation_raw, 2)
+        result["precipitation_source"] = precipitation_source
         result["rain_expected"] = rain_expected
         result["forecast_precip_mm"] = round(forecast_precip_mm, 1)
         result["zones"] = zones_data
@@ -682,8 +715,8 @@ class Et0Coordinator(DataUpdateCoordinator):
         immer hart auf 0 - inklusive des laufenden Tages.
         """
         if zone_index is None:
-            self._carry_deficit = 0.0
-            self._today_deficit = 0.0
+            self._season_et0_carry = 0.0
+            self._today_et0 = 0.0
             self._zone_carry = {k: 0.0 for k in self._zone_carry}
             self._zone_today = {}
         else:
@@ -713,8 +746,8 @@ class Et0Coordinator(DataUpdateCoordinator):
         gesteuert werden.
         """
         self._season_active = active
-        self._carry_deficit = 0.0
-        self._today_deficit = 0.0
+        self._season_et0_carry = 0.0
+        self._today_et0 = 0.0
         self._zone_carry = {k: 0.0 for k in self._zone_carry}
         self._zone_today = {}
         await self._persist()

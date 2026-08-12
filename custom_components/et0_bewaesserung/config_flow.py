@@ -34,6 +34,9 @@ from .const import (
     CONF_RAIN_SKIP_THRESHOLD,
     DEFAULT_RAIN_SKIP_ENABLED,
     DEFAULT_RAIN_SKIP_THRESHOLD,
+    CONF_RAIN_SENSOR,
+    CONF_RAIN_EFFECTIVENESS,
+    DEFAULT_RAIN_EFFECTIVENESS,
     CONF_FROST_LOOKAHEAD_DAYS,
     DEFAULT_FROST_LOOKAHEAD_DAYS,
     CONF_FROST_THRESHOLD,
@@ -113,6 +116,17 @@ def _build_general_schema(hass: HomeAssistant, defaults: dict) -> vol.Schema:
                 ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=50, step=0.5, mode="box")
+            ),
+            vol.Optional(
+                CONF_RAIN_SENSOR, default=defaults.get(CONF_RAIN_SENSOR, "")
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            vol.Required(
+                CONF_RAIN_EFFECTIVENESS,
+                default=defaults.get(
+                    CONF_RAIN_EFFECTIVENESS, DEFAULT_RAIN_EFFECTIVENESS
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0.1, max=1.0, step=0.05, mode="box")
             ),
             vol.Required(
                 CONF_FROST_LOOKAHEAD_DAYS,

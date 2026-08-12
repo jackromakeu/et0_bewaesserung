@@ -19,7 +19,9 @@
           "rain_skip_threshold_mm": "Regen-Skip Schwelle (mm für morgen)",
           "frost_lookahead_days": "Frost-Vorwarnzeit (Tage im Voraus prüfen)",
           "frost_threshold_c": "Frost-Schwelle (°C)",
-          "spring_earliest_date": "Frühestes Frühjahrs-Datum (MM-TT)"
+          "spring_earliest_date": "Frühestes Frühjahrs-Datum (MM-TT)",
+          "rain_sensor_entity": "Sensor gemessener Tagesniederschlag (mm, optional)",
+          "rain_effectiveness": "Regen-Wirksamkeitsfaktor (1.0 = voll anrechnen)"
         }
       },
       "zones": {
@@ -70,7 +72,9 @@
           "rain_skip_threshold_mm": "Regen-Skip Schwelle (mm für morgen)",
           "frost_lookahead_days": "Frost-Vorwarnzeit (Tage im Voraus prüfen)",
           "frost_threshold_c": "Frost-Schwelle (°C)",
-          "spring_earliest_date": "Frühestes Frühjahrs-Datum (MM-TT)"
+          "spring_earliest_date": "Frühestes Frühjahrs-Datum (MM-TT)",
+          "rain_sensor_entity": "Sensor gemessener Tagesniederschlag (mm, optional)",
+          "rain_effectiveness": "Regen-Wirksamkeitsfaktor (1.0 = voll anrechnen)"
         }
       },
       "zones": {

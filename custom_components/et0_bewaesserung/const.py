@@ -48,6 +48,18 @@ CONF_RAIN_SKIP_THRESHOLD = "rain_skip_threshold_mm"
 DEFAULT_RAIN_SKIP_ENABLED = True
 DEFAULT_RAIN_SKIP_THRESHOLD = 5.0
 
+# --- Niederschlagsanrechnung in der Tagesbilanz ---
+# Optionaler Sensor mit GEMESSENER Tagesniederschlagsmenge (mm), z.B. von
+# einer eigenen Wetterstation. Ist er gesetzt, hat er Vorrang vor der
+# Vorhersage - gemessen schlägt prognostiziert.
+CONF_RAIN_SENSOR = "rain_sensor_entity"
+# Wirksamkeitsfaktor: welcher Anteil des Niederschlags kommt tatsächlich in
+# der Wurzelzone an? Bei Starkregen fließt ein Teil oberflächlich ab.
+# 1.0 = voll anrechnen (spart Wasser, gießt seltener)
+# 0.7-0.8 = konservativ (gießt häufiger, Risiko der Unterversorgung geringer)
+CONF_RAIN_EFFECTIVENESS = "rain_effectiveness"
+DEFAULT_RAIN_EFFECTIVENESS = 1.0
+
 # --- Ausfallsicherheit beim geplanten Tageslauf ---
 RETRY_DELAY_MINUTES = 10
 MAX_RETRIES = 3

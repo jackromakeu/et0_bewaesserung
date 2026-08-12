@@ -27,7 +27,7 @@ async def async_setup_entry(
     entities: list[Et0BaseEntity] = [
         Et0Sensor(coordinator, entry),
         RsProxySensor(coordinator, entry),
-        DeficitSensor(coordinator, entry),
+        SeasonEt0SumSensor(coordinator, entry),
     ]
 
     for zone in coordinator.get_zone_definitions():
@@ -82,7 +82,6 @@ class Et0Sensor(Et0BaseEntity):
             "fallback_werte_verwendet": d.get("fallback_used") or "keine",
             "laufender_tag": d.get("current_day"),
             "heutiger_beitrag_referenz_mm": d.get("today_contribution_global"),
-            "defizit_laufend_mm": d.get("deficit_running"),
         }
 
 
@@ -101,11 +100,23 @@ class RsProxySensor(Et0BaseEntity):
         return self.coordinator.data.get("rs") if self.coordinator.data else None
 
 
-class DeficitSensor(Et0BaseEntity):
-    _attr_name = "Bewässerungsdefizit"
+class SeasonEt0SumSensor(Et0BaseEntity):
+    """Kumulierte ET0-Verdunstung seit Saisonstart (reine Statistik).
+
+    Bewusst KEINE Bilanz: hier wird weder Niederschlag abgezogen noch
+    Bewässerung verrechnet - der Wert wächst über die Saison monoton und
+    beantwortet die Frage "wieviel Verdunstung hatte der Garten diese
+    Saison insgesamt". Zurückgesetzt wird er ausschließlich beim
+    Saisonwechsel (switch.gartensaison_aktiv).
+
+    Für die Gieß-Entscheidung sind ausschließlich die zonenspezifischen
+    Defizit-Sensoren maßgeblich, nicht dieser Wert.
+    """
+
+    _attr_name = "ET0 Saisonsumme"
     _attr_native_unit_of_measurement = "mm"
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_icon = "mdi:water-alert"
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_icon = "mdi:chart-line"
 
     def __init__(self, coordinator, entry):
         super().__init__(coordinator, entry)
@@ -113,13 +124,22 @@ class DeficitSensor(Et0BaseEntity):
 
     @property
     def native_value(self):
-        return self.coordinator.data.get("deficit") if self.coordinator.data else None
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.get("season_et0_sum")
 
     @property
     def extra_state_attributes(self):
         if not self.coordinator.data:
             return {}
-        return {"niederschlag_mm": self.coordinator.data.get("precipitation")}
+        return {
+            "niederschlag_angerechnet_mm": self.coordinator.data.get("precipitation"),
+            "niederschlag_roh_mm": self.coordinator.data.get("precipitation_raw"),
+            "niederschlag_quelle": self.coordinator.data.get("precipitation_source"),
+            "heutiger_beitrag_mm": self.coordinator.data.get(
+                "today_contribution_global"
+            ),
+        }
 
 
 class ZoneBaseEntity(Et0BaseEntity):
