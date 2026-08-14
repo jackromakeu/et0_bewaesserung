@@ -11,6 +11,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import async_track_time_change, async_call_later
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -60,6 +61,7 @@ from .const import (
     DEFAULT_SPRING_EARLIEST_DATE,
 )
 from .et0 import calculate_et0, calculate_etc
+from .health import evaluate_health
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -100,6 +102,11 @@ class Et0Coordinator(DataUpdateCoordinator):
         self._unsub_time = None
         self._unsub_retry = None
         self._unsub_rollover = None
+        self._last_success: str | None = None
+        self._last_day_gap: int = 1
+        self._fallback_streaks: dict[str, int] = {}
+        self._health: dict = {"status": "ok", "issues": []}
+        self._known_issue_ids: set[str] = set()
 
     async def async_setup(self) -> None:
         """Lädt gespeicherte Werte und registriert den täglichen Trigger."""
@@ -109,6 +116,9 @@ class Et0Coordinator(DataUpdateCoordinator):
             self._last_watered = {
                 int(k): v for k, v in stored.get("last_watered", {}).items()
             }
+            self._last_success = stored.get("last_success")
+            self._last_day_gap = stored.get("last_day_gap", 1)
+            self._fallback_streaks = stored.get("fallback_streaks", {})
             self._season_active = stored.get("season_active", True)
             self._equipment_stored = stored.get("equipment_stored", False)
             self._frost_warning_active = stored.get("frost_warning_active", False)
@@ -336,6 +346,9 @@ class Et0Coordinator(DataUpdateCoordinator):
                 "current_day": self._current_day,
                 "last_known_values": self._last_known_values,
                 "last_watered": self._last_watered,
+                "last_success": self._last_success,
+                "last_day_gap": self._last_day_gap,
+                "fallback_streaks": self._fallback_streaks,
                 "season_active": self._season_active,
                 "equipment_stored": self._equipment_stored,
                 "frost_warning_active": self._frost_warning_active,
@@ -357,6 +370,13 @@ class Et0Coordinator(DataUpdateCoordinator):
             return False
 
         if self._current_day is not None:
+            # Wie viele Tage liegen zwischen dem letzten gebuchten Tag und
+            # heute? 1 = normal, >1 = Buchungslücke (HA war aus, Timer fehlte)
+            try:
+                prev = date.fromisoformat(self._current_day)
+                self._last_day_gap = max((date.today() - prev).days, 1)
+            except (ValueError, TypeError):
+                self._last_day_gap = 1
             self._season_et0_carry = self._season_et0_carry + self._today_et0
             for idx, val in self._zone_today.items():
                 self._zone_carry[idx] = max(
@@ -788,7 +808,70 @@ class Et0Coordinator(DataUpdateCoordinator):
         result["equipment_stored"] = self._equipment_stored
         result["frost_warning_active"] = self._frost_warning_active
         result["spring_ready_active"] = self._spring_ready_active
+
+        # --- Fallback-Streaks fortschreiben ---
+        # Quellen, die in diesem Lauf über den Cache liefen, hochzählen;
+        # alle anderen zurücksetzen. So fällt eine dauerhaft tote Quelle auf,
+        # ein einzelner Aussetzer aber nicht.
+        for entity_id in list(self._fallback_streaks):
+            if entity_id not in self._fallback_used_this_run:
+                del self._fallback_streaks[entity_id]
+        for entity_id in self._fallback_used_this_run:
+            self._fallback_streaks[entity_id] = (
+                self._fallback_streaks.get(entity_id, 0) + 1
+            )
+
+        self._last_success = dt_util.now().isoformat()
+
+        # --- Gesundheitsprüfung ---
+        self._health = evaluate_health(
+            now=dt_util.now(),
+            last_success=dt_util.parse_datetime(self._last_success),
+            current_day=self._current_day,
+            day_gap=self._last_day_gap,
+            et0=result.get("et0"),
+            calc_date=date.today(),
+            fallback_streaks=self._fallback_streaks,
+            season_active=self._season_active,
+        )
+        result["health_status"] = self._health["status"]
+        result["health_issues"] = self._health["issues"]
+        self._sync_repair_issues()
+
+        await self._persist()
         return result
+
+    def _sync_repair_issues(self) -> None:
+        """Spiegelt die Befunde in die HA-Reparaturen-Ansicht.
+
+        Repair Issues sind der von Home Assistant vorgesehene Weg, damit eine
+        Integration auf Probleme aufmerksam macht: prominent sichtbar, aber
+        nicht aufdringlich wie eine Push-Nachricht - und sie verschwinden
+        automatisch wieder, sobald das Problem behoben ist.
+        """
+        active_codes = set()
+        for issue in self._health["issues"]:
+            code = issue["code"]
+            issue_id = f"{self.entry.entry_id}_{code}"
+            active_codes.add(issue_id)
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                issue_id,
+                is_fixable=False,
+                severity=(
+                    ir.IssueSeverity.ERROR
+                    if issue["severity"] == "fehler"
+                    else ir.IssueSeverity.WARNING
+                ),
+                translation_key="health_generic",
+                translation_placeholders={"details": issue["message"]},
+            )
+
+        # Behobene Befunde wieder entfernen
+        for issue_id in list(self._known_issue_ids - active_codes):
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+        self._known_issue_ids = active_codes
 
     async def async_reset_deficit(
         self, zone_index: int | None = None, amount_mm: float | None = None

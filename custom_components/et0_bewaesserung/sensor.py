@@ -28,6 +28,7 @@ async def async_setup_entry(
         Et0Sensor(coordinator, entry),
         RsProxySensor(coordinator, entry),
         SeasonEt0SumSensor(coordinator, entry),
+        HealthSensor(coordinator, entry),
     ]
 
     for zone in coordinator.get_zone_definitions():
@@ -286,3 +287,38 @@ class ZoneRunningDeficitSensor(ZoneBaseEntity):
     def native_value(self):
         zone = self._zone_data()
         return zone.get("deficit_running") if zone else None
+
+
+class HealthSensor(Et0BaseEntity):
+    """Systemzustand der Integration: ok / warnung / fehler.
+
+    Gedacht für einen Blick aufs Dashboard - die ausführlichen Befunde
+    stehen als Attribut daran und zusätzlich unter Einstellungen →
+    Reparaturen.
+    """
+
+    _attr_name = "Systemzustand"
+    _attr_icon = "mdi:heart-pulse"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = ["ok", "warnung", "fehler"]
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_health"
+
+    @property
+    def native_value(self):
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.get("health_status", "ok")
+
+    @property
+    def extra_state_attributes(self):
+        if not self.coordinator.data:
+            return {}
+        issues = self.coordinator.data.get("health_issues", [])
+        return {
+            "anzahl_befunde": len(issues),
+            "befunde": [i["message"] for i in issues] or "keine",
+            "codes": [i["code"] for i in issues] or "keine",
+        }
