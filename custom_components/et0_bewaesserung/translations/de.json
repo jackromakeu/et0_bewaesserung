@@ -108,5 +108,11 @@
       "entity_no_value": "Diese Entity liefert aktuell keinen gültigen Wert (unknown/unavailable). Bitte erst die zugrunde liegende Quelle prüfen.",
       "entity_not_numeric": "Der aktuelle Wert dieser Entity ist keine Zahl."
     }
+  },
+  "issues": {
+    "health_generic": {
+      "title": "ET0 Bewässerung: Problem erkannt",
+      "description": "{details}\n\nDetails findest du am Sensor \"Systemzustand\" der Integration."
+    }
   }
 }
