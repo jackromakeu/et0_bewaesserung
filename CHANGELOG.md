@@ -2,6 +2,23 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.8.0] - Fehlererkennung
+
+Die Fehler der letzten Versionen (Datenverlust bei der Storage-Migration, fehlender Mitternachts-Rollover, blockierendes Pflichtfeld) hatten eines gemeinsam: Sie passierten **still** und fielen erst Tage später zufällig auf. Diese Version ergänzt deshalb keine neue Funktion, sondern die Fähigkeit, solche Zustände selbst zu erkennen und zu melden.
+
+### Added
+- **Neues Modul `health.py`** mit den Prüfregeln als reine, testbare Funktionen. Bewusst konservativ ausgelegt: gemeldet wird nur, was physikalisch unmöglich oder eindeutig fehlerhaft ist - Fehlalarme sind schädlicher als eine nicht gemeldete Auffälligkeit, weil sie dazu führen, dass Meldungen generell ignoriert werden.
+- **Vier Prüfungen:**
+  - *Ausbleibende Berechnung* – länger als 26 h kein erfolgreicher Lauf (Retry erschöpft, Timer nicht registriert, Integration hängt).
+  - *Buchungslücke* – beim Rollover wurden Tage übersprungen, deren Verdunstung fehlt jetzt in der Bilanz.
+  - *ET0-Plausibilität* – jahreszeitabhängige Unter- und absolute Obergrenze (12 mm/Tag). Erkennt u.a. den Fall „Berechnung lief ohne vollständigen PV-Tagesertrag" (ET0 nahe 0 im Sommer).
+  - *Dauerhafter Fallback* – eine Quelle läuft seit mehreren Läufen nur noch über den zwischengespeicherten Wert, ist also faktisch tot. Ein einzelner Aussetzer löst bewusst nichts aus.
+- **Neuer Sensor `Systemzustand`** (`ok`/`warnung`/`fehler`) mit den Befunden als Attribut - für den täglichen Blick aufs Dashboard.
+- **Repair Issues**: Befunde erscheinen zusätzlich unter Einstellungen → Reparaturen und verschwinden automatisch, sobald das Problem behoben ist. Bewusst passiv - aktive Push-Benachrichtigungen gehören in eine selbst gesteuerte Automation, nicht in die Integration.
+
+### Bewusst nicht umgesetzt
+- Ein Backup/Restore-Mechanismus der Konfiguration wurde erwogen und verworfen: Er hätte die realen Fehler nicht verhindert (der Datenverlust fiel erst Stunden später auf, ein automatisches Backup hätte den kaputten Stand womöglich schon überschrieben). Früherkennung adressiert die Ursache statt der Symptome.
+
 ## [1.7.2]
 
 ### Fixed
