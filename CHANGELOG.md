@@ -2,6 +2,28 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.10.0]
+
+Beide Ergänzungen adressieren dieselbe Grundfrage: Die Bilanz rechnete bisher mit idealisierten Annahmen - unbegrenzt speicherfähiger Boden, verlustfreie Ausbringung. Beides führt zu Wasserverschwendung, also genau dem, was das System verhindern soll.
+
+### Added
+- **Nutzbare Feldkapazität pro Zone** (`field_capacity_mm`, Standard 20 mm). Obergrenze für das Defizit: Mehr Wasser als das kann die Wurzelzone nicht halten, alles darüber versickert ungenutzt in die Tiefe. Ohne diesen Deckel wuchs das Defizit z.B. über eine längere Abwesenheit unbegrenzt weiter und hätte anschließend eine Bewässerungsmenge gefordert, die größtenteils verloren gegangen wäre. Richtwerte: Sand 10–15, Lehm 20–30, Ton 25–35 mm.
+- **Wirkungsgrad der Ausbringung pro Zone** (`irrigation_efficiency`, Standard 0,75 für Rasen/Sprinkler und 0,85 für Tropfschlauch). Sprinkler verlieren real 20–30 % durch Windabdrift, Verdunstung und ungleiche Verteilung. Um ein Defizit von X mm tatsächlich zu decken, müssen X ÷ Wirkungsgrad ausgebracht werden. Das schließt die Inkonsistenz zum bereits vorhandenen `rain_effectiveness`, der genau dieselbe Überlegung für Regen anstellt.
+- Neues Attribut `auszubringen_brutto_mm` an `Bewässerungsdauer <Zone>` – die tatsächlich auszubringende Menge inklusive Verlusten. Die Bewässerungsdauer berücksichtigt sie automatisch; dosisbasierte Systeme (z.B. Aiper) sollten sie im Skript zur Dosis-Auswahl heranziehen.
+
+### Hinweis
+Die Defaults sind bewusst konservativ gewählt – allerdings in unterschiedliche Richtungen: Bei der Feldkapazität ist ein *niedriger* Wert vorsichtig (häufiger, kleiner gießen), beim Wirkungsgrad ein *niedriger* (mehr ausbringen). Beides zusammen führt zu häufigerem, kleinerem Gießen statt seltener großer Gaben.
+
+## [1.9.0]
+
+### Added
+- **Frostschutz während der laufenden Saison.** Die bisherige Frostlogik diente ausschließlich dem Equipment-Abbau (mehrtägige Vorwarnzeit). Neu wird zusätzlich geprüft, ob für die **unmittelbar bevorstehende Nacht** Frost erwartet wird - in dem Fall wird die Bewässerung ausgesetzt, da nasses Laub bei Frost schädlicher ist als trockenes. Sichtbar als Attribut `frost_skip_aktiv` an `Bewässerungsdauer <Zone>`; fließt in `bewaesserung_erlaubt` ein, Automationen brauchen also keine Anpassung.
+
+### Hinweis zur begleitenden Skript-Änderung (nicht Teil des Repos)
+Das Bewässerungs-Skript hat eine **Erfolgskontrolle** erhalten. Bisher wurde `reset_deficit` bedingungslos nach dem Durchlauf aufgerufen - auch wenn `wait_for_trigger` in den Timeout lief. Ein Gerät, das wegen leerem Akku, fehlendem Wasserdruck oder Funkproblem gar nicht gießt, wurde dadurch als "erledigt" verbucht: die Bilanz sprang auf 0, der Rasen blieb trocken, das Dashboard zeigte grün. Das war die einzige Stelle im System, an der ein stiller Fehler unmittelbar Pflanzenschaden verursachen konnte.
+
+Neu wird zweistufig geprüft (läuft das Gerät überhaupt an? endet es regulär?) und nur tatsächlich ausgebrachtes Wasser verbucht - bei nur einem funktionierenden Aiper entsprechend die halbe Dosis, bei Totalausfall gar keine Buchung. Zusätzlich geht eine Warnmeldung raus.
+
 ## [1.8.0] - Fehlererkennung
 
 Die Fehler der letzten Versionen (Datenverlust bei der Storage-Migration, fehlender Mitternachts-Rollover, blockierendes Pflichtfeld) hatten eines gemeinsam: Sie passierten **still** und fielen erst Tage später zufällig auf. Diese Version ergänzt deshalb keine neue Funktion, sondern die Fähigkeit, solche Zustände selbst zu erkennen und zu melden.
