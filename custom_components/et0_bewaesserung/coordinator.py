@@ -41,6 +41,8 @@ from .const import (
     DEFAULT_ZONE_DRIP_RATE,
     DEFAULT_ZONE_MIN_DAYS,
     DEFAULT_ZONE_MIN_DEFICIT_MM,
+    DEFAULT_ZONE_FIELD_CAPACITY,
+    DEFAULT_ZONE_IRRIGATION_EFFICIENCY,
     zone_key,
     CONF_RAIN_SKIP_ENABLED,
     CONF_RAIN_SKIP_THRESHOLD,
@@ -269,14 +271,20 @@ class Et0Coordinator(DataUpdateCoordinator):
                         )
                         min_def_ok = carry >= zone["min_deficit_mm"]
                         allowed = (
-                            not zd.get("rain_skip", False) and min_ok and min_def_ok
+                            not zd.get("rain_skip", False)
+                            and not zd.get("frost_skip", False)
+                            and min_ok
+                            and min_def_ok
                         )
                         zd["min_interval_ok"] = min_ok
                         zd["days_since_watered"] = days_since
                         zd["min_deficit_ok"] = min_def_ok
                         zd["watering_allowed"] = allowed
+                        eff = zone["irrigation_efficiency"]
+                        gross = max(carry, 0.0) / eff if eff > 0 else max(carry, 0.0)
+                        zd["gross_mm"] = round(gross, 2)
                         zd["duration_min"] = (
-                            round(max(carry, 0.0) / zone["drip_rate"], 1)
+                            round(gross / zone["drip_rate"], 1)
                             if allowed and zone["drip_rate"] > 0
                             else 0.0
                         )
@@ -378,10 +386,28 @@ class Et0Coordinator(DataUpdateCoordinator):
             except (ValueError, TypeError):
                 self._last_day_gap = 1
             self._season_et0_carry = self._season_et0_carry + self._today_et0
+            # Obergrenze = nutzbare Feldkapazität der Wurzelzone. Mehr Wasser
+            # als das kann der Boden nicht halten - ein darüber hinaus
+            # aufgelaufenes Defizit würde eine Bewässerungsmenge fordern, die
+            # größtenteils unterhalb der Wurzeln versickert. Ohne Deckel wächst
+            # das Defizit z.B. über einen Urlaub unbegrenzt weiter.
+            capacities = {
+                z["index"]: z["field_capacity_mm"]
+                for z in self.get_zone_definitions()
+            }
             for idx, val in self._zone_today.items():
-                self._zone_carry[idx] = max(
-                    self._zone_carry.get(idx, 0.0) + val, -10.0
-                )
+                neu = self._zone_carry.get(idx, 0.0) + val
+                cap = capacities.get(idx)
+                if cap is not None and neu > cap:
+                    _LOGGER.info(
+                        "Zone %s: Defizit auf Feldkapazität begrenzt "
+                        "(%.2f -> %.2f mm)",
+                        idx,
+                        neu,
+                        cap,
+                    )
+                    neu = cap
+                self._zone_carry[idx] = max(neu, -10.0)
             _LOGGER.info(
                 "Tageswechsel %s -> %s: today (%.2f mm) nach carry übernommen "
                 "(neu: %.2f mm)",
@@ -415,6 +441,17 @@ class Et0Coordinator(DataUpdateCoordinator):
                     zone_key(i, "min_deficit_mm"), DEFAULT_ZONE_MIN_DEFICIT_MM[i]
                 )
             )
+            field_capacity = float(
+                self._get_config(
+                    zone_key(i, "field_capacity_mm"), DEFAULT_ZONE_FIELD_CAPACITY[i]
+                )
+            )
+            irrigation_efficiency = float(
+                self._get_config(
+                    zone_key(i, "irrigation_efficiency"),
+                    DEFAULT_ZONE_IRRIGATION_EFFICIENCY[i],
+                )
+            )
             zones.append(
                 {
                     "index": i,
@@ -423,6 +460,8 @@ class Et0Coordinator(DataUpdateCoordinator):
                     "drip_rate": drip_rate,
                     "min_days": min_days,
                     "min_deficit_mm": min_deficit_mm,
+                    "field_capacity_mm": field_capacity,
+                    "irrigation_efficiency": irrigation_efficiency,
                 }
             )
         return zones
@@ -708,11 +747,17 @@ class Et0Coordinator(DataUpdateCoordinator):
         )
 
         frost_forecast = False
+        frost_imminent = False
         if weather_entity:
             min_temps = await self._get_forecast_min_temps(
                 weather_entity, frost_lookahead
             )
             frost_forecast = any(t <= frost_threshold for t in min_temps)
+            # Punkt 4: Frostschutz WÄHREND der Saison. Der obige
+            # frost_forecast dient dem Equipment-Abbau (Vorwarnzeit mehrere
+            # Tage). Hier zählt nur die unmittelbar bevorstehende Nacht:
+            # nasses Laub bei Frost ist schädlicher als trockenes.
+            frost_imminent = bool(min_temps) and min_temps[0] <= frost_threshold
 
         # Herbst: Saison läuft noch, Equipment noch nicht verstaut, Frost kommt
         if self._season_active and not self._equipment_stored and frost_forecast:
@@ -767,21 +812,39 @@ class Et0Coordinator(DataUpdateCoordinator):
                 idx, zone["min_days"]
             )
             min_deficit_ok = deficit_for_watering >= zone["min_deficit_mm"]
-            watering_allowed = not rain_expected and min_interval_ok and min_deficit_ok
+            watering_allowed = (
+                not rain_expected
+                and not frost_imminent
+                and min_interval_ok
+                and min_deficit_ok
+            )
+
+            # Auszubringende BRUTTO-Menge: Ein Teil erreicht die Wurzelzone
+            # nie (Windabdrift, Verdunstung, ungleiche Verteilung). Um ein
+            # Defizit von X mm tatsächlich zu decken, muss X / Wirkungsgrad
+            # ausgebracht werden.
+            efficiency = zone["irrigation_efficiency"]
+            gross_mm = (
+                max(deficit_for_watering, 0.0) / efficiency
+                if efficiency > 0
+                else max(deficit_for_watering, 0.0)
+            )
 
             duration_min = 0.0
             if watering_allowed and zone["drip_rate"] > 0:
-                duration_min = max(deficit_for_watering, 0.0) / zone["drip_rate"]
+                duration_min = gross_mm / zone["drip_rate"]
 
             watered_info = self._last_watered.get(idx, {})
             zones_data[idx] = {
                 "name": zone["name"],
                 "etc": etc,
                 "deficit": round(deficit_for_watering, 2),
+                "gross_mm": round(gross_mm, 2),
                 "deficit_running": round(deficit_running, 2),
                 "today_contribution_mm": round(self._zone_today[idx], 2),
                 "duration_min": round(duration_min, 1),
                 "rain_skip": rain_expected,
+                "frost_skip": frost_imminent,
                 "min_interval_ok": min_interval_ok,
                 "days_since_watered": days_since_watered,
                 "min_deficit_ok": min_deficit_ok,
@@ -801,6 +864,7 @@ class Et0Coordinator(DataUpdateCoordinator):
         result["precipitation_raw"] = round(precipitation_raw, 2)
         result["precipitation_source"] = precipitation_source
         result["rain_expected"] = rain_expected
+        result["frost_imminent"] = frost_imminent
         result["forecast_precip_mm"] = round(forecast_precip_mm, 1)
         result["zones"] = zones_data
         result["fallback_used"] = sorted(self._fallback_used_this_run)

@@ -224,6 +224,8 @@ class ZoneDurationSensor(ZoneBaseEntity):
             return {}
         return {
             "regen_skip_aktiv": zone.get("rain_skip", False),
+            "frost_skip_aktiv": zone.get("frost_skip", False),
+            "auszubringen_brutto_mm": zone.get("gross_mm"),
             "mindestabstand_erfuellt": zone.get("min_interval_ok", True),
             "tage_seit_letzter_bewaesserung": zone.get("days_since_watered"),
             "mindestdefizit_erfuellt": zone.get("min_deficit_ok", True),

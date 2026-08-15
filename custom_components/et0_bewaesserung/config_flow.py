@@ -33,6 +33,8 @@ from .const import (
     DEFAULT_ZONE_DRIP_RATE,
     DEFAULT_ZONE_MIN_DAYS,
     DEFAULT_ZONE_MIN_DEFICIT_MM,
+    DEFAULT_ZONE_FIELD_CAPACITY,
+    DEFAULT_ZONE_IRRIGATION_EFFICIENCY,
     zone_key,
     CONF_RAIN_SKIP_ENABLED,
     CONF_RAIN_SKIP_THRESHOLD,
@@ -225,6 +227,27 @@ def _build_zone_schema(defaults: dict) -> vol.Schema:
             )
         ] = selector.NumberSelector(
             selector.NumberSelectorConfig(min=0, max=20, step=0.5, mode="box")
+        )
+        schema_dict[
+            vol.Optional(
+                zone_key(i, "field_capacity_mm"),
+                default=defaults.get(
+                    zone_key(i, "field_capacity_mm"), DEFAULT_ZONE_FIELD_CAPACITY[i]
+                ),
+            )
+        ] = selector.NumberSelector(
+            selector.NumberSelectorConfig(min=5, max=60, step=1, mode="box")
+        )
+        schema_dict[
+            vol.Optional(
+                zone_key(i, "irrigation_efficiency"),
+                default=defaults.get(
+                    zone_key(i, "irrigation_efficiency"),
+                    DEFAULT_ZONE_IRRIGATION_EFFICIENCY[i],
+                ),
+            )
+        ] = selector.NumberSelector(
+            selector.NumberSelectorConfig(min=0.3, max=1.0, step=0.05, mode="box")
         )
     return vol.Schema(schema_dict)
 

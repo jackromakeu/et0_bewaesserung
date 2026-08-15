@@ -43,6 +43,18 @@ DEFAULT_ZONE_MIN_DAYS = [1, 1, 1]
 # Mindest-Defizit in mm, ab dem überhaupt gegossen wird - verhindert
 # Bewässerung bei nur geringfügigem Wasserbedarf
 DEFAULT_ZONE_MIN_DEFICIT_MM = [1.5, 1.5, 1.5]
+# Nutzbare Feldkapazität der Wurzelzone in mm - Obergrenze für das Defizit.
+# Mehr Wasser als das kann der Boden nicht halten; alles darüber versickert
+# unterhalb der Wurzeln und ist verloren. Richtwerte: Sand 10-15, Lehm 20-30,
+# Ton 25-35 mm bei üblicher Rasendurchwurzelung. Konservativ = niedriger
+# Wert (führt zu häufigerem, kleinerem Gießen statt seltener Überwässerung).
+DEFAULT_ZONE_FIELD_CAPACITY = [20.0, 20.0, 20.0]
+# Wirkungsgrad der Ausbringung: welcher Anteil kommt in der Wurzelzone an?
+# Sprinkler/Rotoren verlieren durch Windabdrift, Verdunstung und ungleiche
+# Verteilung typisch 20-30%; Tropfschläuche kaum (0.9-0.95).
+# Konservativ = niedriger Wert (es wird MEHR ausgebracht, um das Defizit
+# rechnerisch zu decken).
+DEFAULT_ZONE_IRRIGATION_EFFICIENCY = [0.75, 0.85, 0.75]
 
 
 def zone_key(index: int, field: str) -> str:
