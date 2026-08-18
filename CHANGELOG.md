@@ -2,6 +2,21 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.11.2]
+
+### Fixed
+- **`daily_reset=True` war für den Regen-Messsensor semantisch falsch.** Dieses Flag ist für Mitternachts-Zähler gedacht (z.B. PV-Ertrag) und verbietet dort zurecht einen Fallback über die Tagesgrenze hinweg. Der DWD-Regensensor (`Precipitation last 24 hours`) ist aber ein **rollierendes** 24h-Fenster, kein Mitternachts-Zähler - ein wenige Stunden alter Fallback bleibt auch über Mitternacht hinweg sinnvoll. Mit `daily_reset=True` konnte ein kurzer, transienter Ausfall des Sensors (Radar-Datenlücke) kurz vor der abendlichen Berechnung dazu führen, dass ein eigentlich noch gültiger Fallback-Wert (unter der 26h-Grenze) zusätzlich verworfen wurde, sobald der letzte gecachte Erfolg zufällig vom Vortag stammte.
+
+### Added
+- **Erfolgs-Log für planmäßige Läufe.** Bisher wurde nur bei Fehlern geloggt - ein stiller Erfolg und ein stiller Ausfall (z.B. durch einen nicht registrierten Timer) waren dadurch im Protokoll nicht zu unterscheiden. Jeder erfolgreiche planmäßige Lauf schreibt jetzt eine Info-Zeile mit ET0-Wert und verwendeter Niederschlagsquelle.
+
+## [1.11.1]
+
+### Added
+- **Eigenes Icon und Logo.** Seit Home Assistant 2026.3 können Custom-Integrationen ihre Brand-Bilder direkt mitliefern (Ordner `brand/`), ohne den Umweg über einen Pull Request ins zentrale `home-assistant/brands`-Repository. Lokale Bilder haben Vorrang vor dem CDN. Enthalten sind `icon.png`/`icon@2x.png` (256/512 px, quadratisch) und `logo.png`/`logo@2x.png` (Querformat). Motiv: Wassertropfen vor Sonne - die beiden Größen, aus denen sich die Evapotranspiration ergibt.
+
+**Voraussetzung:** Home Assistant 2026.3 oder neuer. Bei älteren Versionen bleibt der graue Platzhalter, ohne dass etwas kaputtgeht.
+
 ## [1.11.0]
 
 ### Added
