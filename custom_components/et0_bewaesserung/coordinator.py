@@ -564,6 +564,17 @@ class Et0Coordinator(DataUpdateCoordinator):
             "und es existiert kein ausreichend aktueller Fallback-Wert"
         )
 
+    def _next_watering_date(self) -> date:
+        """Datum des nächsten Bewässerungsmorgens.
+
+        Bewässert wird in den frühen Morgenstunden. Vor Mittag steht der
+        Gießzeitpunkt des laufenden Tages also entweder unmittelbar bevor
+        oder ist gerade vorbei - in beiden Fällen ist HEUTE der relevante
+        Bezugstag. Ab Mittag ist es der Folgetag.
+        """
+        now = dt_util.now()
+        return now.date() if now.hour < 12 else now.date() + timedelta(days=1)
+
     async def _get_forecast_precipitation(
         self, weather_entity: str, target_date: date
     ) -> float:
@@ -598,6 +609,30 @@ class Et0Coordinator(DataUpdateCoordinator):
             if entry_date == target_iso:
                 total += float(entry.get("precipitation") or 0.0)
         return total
+
+    async def _get_forecast_min_temp_for(
+        self, weather_entity: str, target_date: date
+    ) -> float | None:
+        """Tiefsttemperatur (°C) für einen konkreten Tag, None wenn unbekannt."""
+        try:
+            response = await self.hass.services.async_call(
+                "weather",
+                "get_forecasts",
+                service_data={"type": "daily"},
+                target={"entity_id": weather_entity},
+                blocking=True,
+                return_response=True,
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Frost-Vorhersage nicht abrufbar: %s", err)
+            return None
+
+        target_iso = target_date.isoformat()
+        for entry in (response or {}).get(weather_entity, {}).get("forecast", []):
+            if str(entry.get("datetime", ""))[:10] == target_iso:
+                low = entry.get("templow")
+                return float(low) if low is not None else None
+        return None
 
     async def _get_forecast_min_temps(
         self, weather_entity: str, days: int
@@ -728,8 +763,16 @@ class Et0Coordinator(DataUpdateCoordinator):
         )
         forecast_precip_mm = 0.0
         if rain_skip_enabled and weather_entity:
+            # Der Regen-Skip muss den Tag bewerten, an dem TATSÄCHLICH
+            # gegossen wird - nicht "morgen" relativ zum Rechenzeitpunkt.
+            # Gegossen wird früh morgens. Läuft die Berechnung abends
+            # (Regelfall), ist der nächste Gießmorgen also morgen; läuft sie
+            # dagegen nachts oder früh (z.B. manuelles recalculate um 4 Uhr),
+            # ist es noch HEUTE. Ohne diese Unterscheidung würde ein manueller
+            # Lauf kurz vor dem Gießen den übernächsten Tag bewerten und den
+            # Skip fälschlich setzen oder aufheben.
             forecast_precip_mm = await self._get_forecast_precipitation(
-                weather_entity, date.today() + timedelta(days=1)
+                weather_entity, self._next_watering_date()
             )
         rain_expected = forecast_precip_mm >= rain_skip_threshold
 
@@ -752,12 +795,20 @@ class Et0Coordinator(DataUpdateCoordinator):
             min_temps = await self._get_forecast_min_temps(
                 weather_entity, frost_lookahead
             )
+            temp_watering_night = await self._get_forecast_min_temp_for(
+                weather_entity, self._next_watering_date()
+            )
             frost_forecast = any(t <= frost_threshold for t in min_temps)
             # Punkt 4: Frostschutz WÄHREND der Saison. Der obige
             # frost_forecast dient dem Equipment-Abbau (Vorwarnzeit mehrere
             # Tage). Hier zählt nur die unmittelbar bevorstehende Nacht:
             # nasses Laub bei Frost ist schädlicher als trockenes.
-            frost_imminent = bool(min_temps) and min_temps[0] <= frost_threshold
+            # Gleiche Bezugslogik wie beim Regen-Skip: bewertet wird die
+            # Nacht des nächsten Gießmorgens, nicht "der erste Vorschautag".
+            frost_imminent = (
+                temp_watering_night is not None
+                and temp_watering_night <= frost_threshold
+            )
 
         # Herbst: Saison läuft noch, Equipment noch nicht verstaut, Frost kommt
         if self._season_active and not self._equipment_stored and frost_forecast:
