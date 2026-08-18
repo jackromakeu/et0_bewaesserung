@@ -2,6 +2,11 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.11.0]
+
+### Added
+- **Neuer Sensor `Niederschlag angerechnet`** – zeigt die Regenmenge, die tatsächlich in die Wasserbilanz des Tages eingeflossen ist (nach Wirksamkeitsfaktor). Bisher war das nur als Attribut an `ET0 Saisonsumme` versteckt. Attribute: `quelle` (im Klartext, z.B. „Radar-Messung (DWD)" oder „Wettervorhersage"), `quelle_technisch`, `rohmenge_mm` (vor Wirksamkeitsfaktor) und `regen_prognose_morgen_mm`. Erleichtert das Nachvollziehen, ob eine gemessene oder prognostizierte Menge verrechnet wurde - und mit dem Verlauf lässt sich beides über die Zeit vergleichen.
+
 ## [1.10.1]
 
 ### Fixed
