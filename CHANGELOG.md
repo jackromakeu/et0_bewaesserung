@@ -2,6 +2,11 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.10.1]
+
+### Fixed
+- **Regen-Skip und Frost-Skip bewerteten bei manueller Neuberechnung den falschen Tag.** Beide bezogen sich auf „morgen" bzw. „den ersten Vorschautag" relativ zum **Rechenzeitpunkt** statt auf den Tag, an dem tatsächlich gegossen wird. Ein manuelles `recalculate` in den frühen Morgenstunden – also kurz vor dem Gießen – bewertete dadurch bereits den übernächsten Tag und konnte einen aktiven Skip fälschlich aufheben (oder umgekehrt einen setzen). Beide Prüfungen richten sich jetzt am **nächsten Bewässerungsmorgen** aus: vor Mittag ist das der laufende Tag, danach der Folgetag. Der reguläre Abendlauf verhält sich unverändert.
+
 ## [1.10.0]
 
 Beide Ergänzungen adressieren dieselbe Grundfrage: Die Bilanz rechnete bisher mit idealisierten Annahmen - unbegrenzt speicherfähiger Boden, verlustfreie Ausbringung. Beides führt zu Wasserverschwendung, also genau dem, was das System verhindern soll.
