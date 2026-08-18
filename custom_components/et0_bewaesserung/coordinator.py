@@ -313,6 +313,13 @@ class Et0Coordinator(DataUpdateCoordinator):
         """
         await self.async_refresh()
         if self.last_update_success:
+            _LOGGER.info(
+                "Planmäßige ET0-Berechnung erfolgreich (Versuch %s) - "
+                "ET0=%.2f mm, Niederschlagsquelle=%s",
+                attempt,
+                (self.data or {}).get("et0", -1),
+                (self.data or {}).get("precipitation_source", "?"),
+            )
             return
 
         if attempt >= MAX_RETRIES:
@@ -735,7 +742,16 @@ class Et0Coordinator(DataUpdateCoordinator):
         precipitation_source = "keine"
         if rain_sensor:
             try:
-                precipitation_raw = self._get_float_state(rain_sensor, daily_reset=True)
+                # WICHTIG: kein daily_reset=True hier! Das Flag ist für
+                # Mitternachts-Zähler (PV-Ertrag) gedacht und verbietet dort
+                # zurecht einen Fallback über die Tagesgrenze hinweg. Der
+                # DWD-Regensensor ist aber ein ROLLIERENDES 24h-Fenster, kein
+                # Mitternachts-Zähler - ein wenige Stunden alter Fallback
+                # bleibt auch über Mitternacht hinweg sinnvoll. Mit
+                # daily_reset=True hätte ein kurzer Ausfall des Sensors kurz
+                # vor der abendlichen Berechnung den Fallback fälschlich
+                # verworfen, sobald der gecachte Wert noch vom Vortag war.
+                precipitation_raw = self._get_float_state(rain_sensor)
                 precipitation_source = "gemessen"
             except HomeAssistantError as err:
                 _LOGGER.warning(
