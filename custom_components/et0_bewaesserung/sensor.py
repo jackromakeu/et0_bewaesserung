@@ -29,6 +29,7 @@ async def async_setup_entry(
         RsProxySensor(coordinator, entry),
         SeasonEt0SumSensor(coordinator, entry),
         HealthSensor(coordinator, entry),
+        PrecipitationSensor(coordinator, entry),
     ]
 
     for zone in coordinator.get_zone_definitions():
@@ -323,4 +324,46 @@ class HealthSensor(Et0BaseEntity):
             "anzahl_befunde": len(issues),
             "befunde": [i["message"] for i in issues] or "keine",
             "codes": [i["code"] for i in issues] or "keine",
+        }
+
+
+class PrecipitationSensor(Et0BaseEntity):
+    """Für den heutigen Tag angerechneter Niederschlag (mm).
+
+    Zeigt die Menge, die tatsächlich in die Wasserbilanz eingeflossen ist -
+    also nach Anwendung des Wirksamkeitsfaktors. Die Rohmenge und die
+    verwendete Quelle (gemessen/prognose/keine) stehen als Attribute daran,
+    damit sich ohne Umwege nachvollziehen lässt, woher der Wert stammt.
+    """
+
+    _attr_name = "Niederschlag angerechnet"
+    _attr_native_unit_of_measurement = "mm"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:weather-rainy"
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_precipitation"
+
+    @property
+    def native_value(self):
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.get("precipitation")
+
+    @property
+    def extra_state_attributes(self):
+        if not self.coordinator.data:
+            return {}
+        d = self.coordinator.data
+        quelle = d.get("precipitation_source")
+        return {
+            "quelle": {
+                "gemessen": "Radar-Messung (DWD)",
+                "prognose": "Wettervorhersage",
+                "keine": "keine Quelle verfügbar",
+            }.get(quelle, quelle),
+            "quelle_technisch": quelle,
+            "rohmenge_mm": d.get("precipitation_raw"),
+            "regen_prognose_morgen_mm": d.get("forecast_precip_mm"),
         }
