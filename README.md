@@ -96,6 +96,7 @@ Alle Entitäten hängen an einem gemeinsamen Gerät „ET0 Bewässerung".
 | Frost erwartet – Equipment-Abbau nötig | binary_sensor | „Sticky" bis Bestätigung |
 | Frühjahr bereit – Equipment-Aufbau möglich | binary_sensor | „Sticky" bis Bestätigung |
 | Equipment verstaut | binary_sensor | An = Winterkonfiguration |
+| Jetzt neu berechnen | button | Manuelle Neuberechnung, seit v1.4.0 jederzeit unschädlich (idempotent) |
 
 **Pro Zone**
 

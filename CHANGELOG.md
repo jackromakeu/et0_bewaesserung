@@ -2,6 +2,19 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.12.0]
+
+### Fixed
+- **Regen-/Frost-Skip waren implizit auf reine Morgenbewässerung zugeschnitten.** Der bisherige `_next_watering_date()`-Ansatz (vor Mittag = heute, danach = morgen) ging fest davon aus, dass nur früh morgens gegossen wird. Bei einer abendlichen Gieß-Zone hätte eine tagsüber angestoßene Neuberechnung ab 12 Uhr fälschlich bereits den ÜBERNÄCHSTEN Tag bewertet und den Skip für den eigentlich noch bevorstehenden heutigen Abend falsch gesetzt oder aufgehoben.
+
+### Changed
+- **Regen- und Frost-Skip nach dem gleichen Prinzip wie die Bilanz (carry/today) neu aufgebaut**: `heute` ist der beim Mitternachts-Rollover fixierte, für den ganzen Tag stabile Wert - Automationen fragen ausschließlich diesen ab, unabhängig davon ob morgens oder abends gegossen wird. `morgen` wird bei jeder Berechnung frisch ermittelt und übernimmt beim nächsten Tageswechsel die Rolle von `heute`. `_next_watering_date()` entfällt ersatzlos.
+- Neue Diagnose-Attribute an `ET0 Tagesreferenz`, `Niederschlag angerechnet` und `Regen erwartet`: `regen_prognose_heute_mm`/`_morgen_mm`, `regen_skip_aktiv_heute`/`_morgen`, `frost_skip_aktiv_heute`/`_morgen`.
+- Attribut `regen_erwartet_morgen` in `regen_skip_aktiv_heute` umbenannt (Bedeutung hat sich geändert - zeigte vorher teils morgen, teils heute, jetzt eindeutig heute).
+
+### Added
+- **Neue Button-Entity `Jetzt neu berechnen`.** War bisher nur als Aktion in den Entwicklerwerkzeugen erreichbar. Seit dem idempotenten Datenmodell (v1.4.0) ist ein manueller Aufruf zu jeder Tages- und Nachtzeit unschädlich - jetzt auch als normale Dashboard-Kachel verfügbar.
+
 ## [1.11.2]
 
 ### Fixed
