@@ -109,6 +109,15 @@ class Et0Coordinator(DataUpdateCoordinator):
         self._fallback_streaks: dict[str, int] = {}
         self._health: dict = {"status": "ok", "issues": []}
         self._known_issue_ids: set[str] = set()
+        # Regen-/Frost-Skip: HEUTE ist der über den Rollover fixierte,
+        # stabile Wert (bleibt für den ganzen Tag gleich, egal ob eine Zone
+        # morgens oder abends gießt). MORGEN wird bei jeder Berechnung frisch
+        # ermittelt und übernimmt beim nächsten Tageswechsel die Rolle von
+        # HEUTE - exakt dasselbe Prinzip wie carry/today bei der Bilanz.
+        self._rain_skip_today: bool = False
+        self._rain_skip_tomorrow: bool = False
+        self._frost_skip_today: bool = False
+        self._frost_skip_tomorrow: bool = False
 
     async def async_setup(self) -> None:
         """Lädt gespeicherte Werte und registriert den täglichen Trigger."""
@@ -125,6 +134,10 @@ class Et0Coordinator(DataUpdateCoordinator):
             self._equipment_stored = stored.get("equipment_stored", False)
             self._frost_warning_active = stored.get("frost_warning_active", False)
             self._spring_ready_active = stored.get("spring_ready_active", False)
+            self._rain_skip_today = stored.get("rain_skip_today", False)
+            self._rain_skip_tomorrow = stored.get("rain_skip_tomorrow", False)
+            self._frost_skip_today = stored.get("frost_skip_today", False)
+            self._frost_skip_tomorrow = stored.get("frost_skip_tomorrow", False)
 
             # --- Format-Erkennung über drei Storage-Generationen ---
             # v1.5.0+ : season_et0_carry / zone_carry
@@ -262,6 +275,12 @@ class Et0Coordinator(DataUpdateCoordinator):
                     zd["today_contribution_mm"] = round(
                         self._zone_today.get(idx, 0.0), 2
                     )
+                    # Regen-/Frost-Skip wurden im Rollover bereits von
+                    # "morgen" (gestern ermittelt) zu "heute" übernommen -
+                    # genau diese frischen Werte gelten jetzt, nicht die
+                    # gestrigen aus dem alten Zonen-Dict.
+                    zd["rain_skip"] = self._rain_skip_today
+                    zd["frost_skip"] = self._frost_skip_today
                     # Gieß-Freigabe mit dem neuen carry neu bewerten
                     for zone in self.get_zone_definitions():
                         if zone["index"] != idx:
@@ -271,8 +290,8 @@ class Et0Coordinator(DataUpdateCoordinator):
                         )
                         min_def_ok = carry >= zone["min_deficit_mm"]
                         allowed = (
-                            not zd.get("rain_skip", False)
-                            and not zd.get("frost_skip", False)
+                            not self._rain_skip_today
+                            and not self._frost_skip_today
                             and min_ok
                             and min_def_ok
                         )
@@ -368,6 +387,10 @@ class Et0Coordinator(DataUpdateCoordinator):
                 "equipment_stored": self._equipment_stored,
                 "frost_warning_active": self._frost_warning_active,
                 "spring_ready_active": self._spring_ready_active,
+                "rain_skip_today": self._rain_skip_today,
+                "rain_skip_tomorrow": self._rain_skip_tomorrow,
+                "frost_skip_today": self._frost_skip_today,
+                "frost_skip_tomorrow": self._frost_skip_tomorrow,
             }
         )
 
@@ -423,6 +446,13 @@ class Et0Coordinator(DataUpdateCoordinator):
                 self._today_et0,
                 self._season_et0_carry,
             )
+
+            # Regen-/Frost-Skip: die für "morgen" (= jetzt heute) ermittelte
+            # Einschätzung wird übernommen und bleibt bis zum nächsten
+            # Tageswechsel stabil - unabhängig davon, ob eine Zone morgens
+            # oder abends gießt. Automationen fragen ausschließlich "heute" ab.
+            self._rain_skip_today = self._rain_skip_tomorrow
+            self._frost_skip_today = self._frost_skip_tomorrow
 
         self._today_et0 = 0.0
         self._zone_today = {}
@@ -570,17 +600,6 @@ class Et0Coordinator(DataUpdateCoordinator):
             f"Entity {entity_id} liefert keinen gültigen Wert ({problem}) "
             "und es existiert kein ausreichend aktueller Fallback-Wert"
         )
-
-    def _next_watering_date(self) -> date:
-        """Datum des nächsten Bewässerungsmorgens.
-
-        Bewässert wird in den frühen Morgenstunden. Vor Mittag steht der
-        Gießzeitpunkt des laufenden Tages also entweder unmittelbar bevor
-        oder ist gerade vorbei - in beiden Fällen ist HEUTE der relevante
-        Bezugstag. Ab Mittag ist es der Folgetag.
-        """
-        now = dt_util.now()
-        return now.date() if now.hour < 12 else now.date() + timedelta(days=1)
 
     async def _get_forecast_precipitation(
         self, weather_entity: str, target_date: date
@@ -770,27 +789,32 @@ class Et0Coordinator(DataUpdateCoordinator):
         # (Oberflächenabfluss bei Starkregen).
         precipitation = precipitation_raw * rain_effectiveness
 
-        # --- Vorausschauender Regen-Skip (Prognose für MORGEN) ---
+        # --- Vorausschauender Regen-Skip: HEUTE und MORGEN getrennt ---
+        # "heute" ist der über den Rollover fixierte, für den ganzen Tag
+        # stabile Wert (siehe _rollover_if_needed) - Automationen fragen NUR
+        # diesen ab, unabhängig davon ob morgens oder abends gegossen wird.
+        # "morgen" wird bei jeder Berechnung frisch ermittelt und übernimmt
+        # beim nächsten Tageswechsel die Rolle von "heute".
         rain_skip_enabled = bool(
             self._get_config(CONF_RAIN_SKIP_ENABLED, DEFAULT_RAIN_SKIP_ENABLED)
         )
         rain_skip_threshold = float(
             self._get_config(CONF_RAIN_SKIP_THRESHOLD, DEFAULT_RAIN_SKIP_THRESHOLD)
         )
-        forecast_precip_mm = 0.0
+        forecast_precip_today_mm = 0.0
+        forecast_precip_tomorrow_mm = 0.0
         if rain_skip_enabled and weather_entity:
-            # Der Regen-Skip muss den Tag bewerten, an dem TATSÄCHLICH
-            # gegossen wird - nicht "morgen" relativ zum Rechenzeitpunkt.
-            # Gegossen wird früh morgens. Läuft die Berechnung abends
-            # (Regelfall), ist der nächste Gießmorgen also morgen; läuft sie
-            # dagegen nachts oder früh (z.B. manuelles recalculate um 4 Uhr),
-            # ist es noch HEUTE. Ohne diese Unterscheidung würde ein manueller
-            # Lauf kurz vor dem Gießen den übernächsten Tag bewerten und den
-            # Skip fälschlich setzen oder aufheben.
-            forecast_precip_mm = await self._get_forecast_precipitation(
-                weather_entity, self._next_watering_date()
+            forecast_precip_today_mm = await self._get_forecast_precipitation(
+                weather_entity, date.today()
             )
-        rain_expected = forecast_precip_mm >= rain_skip_threshold
+            forecast_precip_tomorrow_mm = await self._get_forecast_precipitation(
+                weather_entity, date.today() + timedelta(days=1)
+            )
+            self._rain_skip_today = forecast_precip_today_mm >= rain_skip_threshold
+            self._rain_skip_tomorrow = (
+                forecast_precip_tomorrow_mm >= rain_skip_threshold
+            )
+        rain_expected = self._rain_skip_today
 
         # --- Frost-/Frühjahrs-Erkennung (unabhängig von der Tages-Sperre,
         #     läuft bei jedem Lauf, damit die Warnung so früh wie möglich
@@ -806,25 +830,29 @@ class Et0Coordinator(DataUpdateCoordinator):
         )
 
         frost_forecast = False
-        frost_imminent = False
         if weather_entity:
             min_temps = await self._get_forecast_min_temps(
                 weather_entity, frost_lookahead
             )
-            temp_watering_night = await self._get_forecast_min_temp_for(
-                weather_entity, self._next_watering_date()
-            )
             frost_forecast = any(t <= frost_threshold for t in min_temps)
-            # Punkt 4: Frostschutz WÄHREND der Saison. Der obige
-            # frost_forecast dient dem Equipment-Abbau (Vorwarnzeit mehrere
-            # Tage). Hier zählt nur die unmittelbar bevorstehende Nacht:
-            # nasses Laub bei Frost ist schädlicher als trockenes.
-            # Gleiche Bezugslogik wie beim Regen-Skip: bewertet wird die
-            # Nacht des nächsten Gießmorgens, nicht "der erste Vorschautag".
-            frost_imminent = (
-                temp_watering_night is not None
-                and temp_watering_night <= frost_threshold
+
+            # Frostschutz WÄHREND der Saison, getrennt nach HEUTE/MORGEN wie
+            # beim Regen-Skip (siehe dort für die Begründung). Der obige
+            # frost_forecast dient einem anderen Zweck (Equipment-Abbau,
+            # mehrtägige Vorwarnzeit) und bleibt unverändert.
+            temp_today = await self._get_forecast_min_temp_for(
+                weather_entity, date.today()
             )
+            temp_tomorrow = await self._get_forecast_min_temp_for(
+                weather_entity, date.today() + timedelta(days=1)
+            )
+            self._frost_skip_today = (
+                temp_today is not None and temp_today <= frost_threshold
+            )
+            self._frost_skip_tomorrow = (
+                temp_tomorrow is not None and temp_tomorrow <= frost_threshold
+            )
+        frost_imminent = self._frost_skip_today
 
         # Herbst: Saison läuft noch, Equipment noch nicht verstaut, Frost kommt
         if self._season_active and not self._equipment_stored and frost_forecast:
@@ -932,7 +960,11 @@ class Et0Coordinator(DataUpdateCoordinator):
         result["precipitation_source"] = precipitation_source
         result["rain_expected"] = rain_expected
         result["frost_imminent"] = frost_imminent
-        result["forecast_precip_mm"] = round(forecast_precip_mm, 1)
+        result["forecast_precip_mm"] = round(forecast_precip_tomorrow_mm, 1)
+        result["rain_skip_tomorrow"] = self._rain_skip_tomorrow
+        result["frost_skip_tomorrow"] = self._frost_skip_tomorrow
+        result["forecast_precip_today_mm"] = round(forecast_precip_today_mm, 1)
+        result["forecast_precip_tomorrow_mm"] = round(forecast_precip_tomorrow_mm, 1)
         result["zones"] = zones_data
         result["fallback_used"] = sorted(self._fallback_used_this_run)
         result["season_active"] = self._season_active

@@ -106,10 +106,17 @@ class EquipmentStoredSensor(Et0BinaryBaseEntity):
 
 
 class RainExpectedSensor(Et0BinaryBaseEntity):
-    """Globaler Regen-Skip-Status: an = für morgen wird Regen über der
-    konfigurierten Schwelle erwartet, alle Zonen setzen die Bewässerung aus."""
+    """Globaler Regen-Skip-Status: an = für HEUTE wird Regen über der
+    konfigurierten Schwelle erwartet, alle Zonen setzen die Bewässerung aus.
 
-    _attr_name = "Regen erwartet (Skip aktiv)"
+    Der Wert wird beim Mitternachts-Rollover fixiert und bleibt für den
+    ganzen Tag stabil - unabhängig davon, ob eine Zone morgens oder abends
+    gießt (siehe coordinator._rollover_if_needed). Der Name der Entity blieb
+    aus Kompatibilitätsgründen unverändert (Entity-ID ändert sich dadurch
+    nicht), nur die Bedeutung wurde von "morgen" auf "heute" präzisiert.
+    """
+
+    _attr_name = "Regen erwartet (Skip aktiv heute)"
     _attr_icon = "mdi:weather-pouring"
     _attr_device_class = "moisture"
 
@@ -127,8 +134,11 @@ class RainExpectedSensor(Et0BinaryBaseEntity):
     def extra_state_attributes(self):
         if not self.coordinator.data:
             return {}
+        d = self.coordinator.data
         return {
-            "regen_prognose_morgen_mm": self.coordinator.data.get("forecast_precip_mm")
+            "regen_prognose_heute_mm": d.get("forecast_precip_today_mm"),
+            "regen_prognose_morgen_mm": d.get("forecast_precip_tomorrow_mm"),
+            "skip_aktiv_morgen": d.get("rain_skip_tomorrow"),
         }
 
 

@@ -15,7 +15,7 @@ from homeassistant.helpers import config_validation as cv
 from .const import DOMAIN
 from .coordinator import Et0Coordinator
 
-PLATFORMS = [Platform.SENSOR, Platform.SWITCH, Platform.BINARY_SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.SWITCH, Platform.BINARY_SENSOR, Platform.BUTTON]
 
 RESET_DEFICIT_SCHEMA = vol.Schema(
     {
