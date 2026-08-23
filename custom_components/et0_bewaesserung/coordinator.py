@@ -163,6 +163,16 @@ class Et0Coordinator(DataUpdateCoordinator):
             }
             self._current_day = stored.get("current_day")
 
+    def _get_config(self, key: str, default=None):
+        """Liest eine Einstellung des HAUPT-Eintrags.
+
+        Options haben Vorrang vor data, damit spätere Änderungen über
+        "Konfigurieren" greifen. Zonen-Einstellungen laufen NICHT hierüber,
+        die stehen seit v2.0.0 in den jeweiligen Subentries (siehe
+        get_zone_definitions).
+        """
+        return self.entry.options.get(key, self.entry.data.get(key, default))
+
     async def _persist(self) -> None:
         """Speichert den kompletten persistenten Zustand an einer Stelle."""
         await self._store.async_save(
