@@ -2,6 +2,24 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.0.0] – Zonen als Config-Subentries
+
+**BREAKING CHANGE – Neueinrichtung erforderlich.** Diese Version bricht bewusst mit der bisherigen Struktur; eine automatische Migration gibt es nicht. Bestehende Entitäten, Entity-IDs und deren Historie gehen verloren. Der Umbau wurde bewusst zum Saisonende durchgeführt, wo ein Neustart nichts kostet.
+
+### Changed
+- **Jede Zone ist jetzt ein eigener Config-Subentry mit eigenem Gerät.** Statt bis zu drei Zonen in einer 21-Felder-Sammelliste gibt es „Zone hinzufügen" auf der Integrationsseite, und jeder Zonen-Dialog zeigt nur die sieben Felder dieser einen Zone.
+  - Die Obergrenze `MAX_ZONES = 3` entfällt ersatzlos – beliebig viele Zonen möglich.
+  - Zonen lassen sich einzeln hinzufügen, bearbeiten und entfernen, ohne die übrigen anzufassen.
+- **Zonen werden intern über die Subentry-ID identifiziert statt über einen Index.** Das behebt ein latentes Problem des alten Modells: Beim Löschen einer Zone rutschten alle nachfolgenden im Index nach vorn und hätten die Bilanz der gelöschten Zone geerbt.
+- Der Haupteintrag enthält nur noch die zonenunabhängigen Einstellungen (Wettersensoren, PV, Regen, Frost, Berechnungszeitpunkt).
+- Zonen-Entitäten hängen an einem eigenen Gerät je Zone, verknüpft mit dem Haupt-Gerät. Das entspricht auch der HA-Vorgabe seit Juli 2026, nach der ein Gerät nur noch an genau einem Subentry hängen darf.
+
+### Removed
+- Migrationscode für die Storage-Formate vor v1.4.0 – durch den Neustart nicht mehr nötig, und damit auch die Fehlerquelle, die in v1.6.1 zum Datenverlust geführt hatte.
+
+### Hinweis zur Umstellung
+Nach dem Update: Integration entfernen, neu hinzufügen, allgemeine Einstellungen eintragen, dann jede Zone einzeln anlegen. Automationen, Skript und Dashboard müssen auf die neuen Entity-IDs angepasst werden.
+
 ## [1.13.0]
 
 ### Changed
