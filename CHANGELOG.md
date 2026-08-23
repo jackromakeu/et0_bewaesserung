@@ -2,6 +2,14 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.13.0]
+
+### Changed
+- **Untergrenze des Defizits leitet sich jetzt aus der Feldkapazität ab** statt aus einer festen Konstante von −10 mm. Ein negatives Defizit bedeutet „Boden voller als der Zielzustand" – der Boden kann aber nicht beliebig viel speichern: Ist die Feldkapazität erreicht, läuft zusätzliches Wasser durch die Wurzelzone hindurch ab (Perkolation) und ist für die Pflanze verloren. Fachlich wäre 0 die exakte Grenze; der verbleibende kleine negative Puffer (15 % der Feldkapazität, `DEFICIT_FLOOR_RATIO`) bildet Messungenauigkeit und die Restreserve tieferer Bodenschichten ab.
+  - Konkret bei 20 mm Feldkapazität: Untergrenze −3,0 mm statt bisher −10 mm. Sandboden (12 mm) → −1,8 mm, Ton (30 mm) → −4,5 mm.
+  - **Praktischer Effekt:** Nach Starkregen kam die Bilanz bisher bis zu 10 mm ins Minus und brauchte anschließend mehrere Tage, um überhaupt wieder die Gieß-Schwelle zu erreichen – obwohl der Boden real längst abgetrocknet war. Die Verzögerung nach Regenphasen fällt jetzt geringer aus und passt sich der Bodenart an.
+- Die `ET0 Saisonsumme` ist bewusst **nicht** betroffen: Sie ist eine reine Verdunstungsstatistik, keine Bilanz, und kennt daher keine Untergrenze.
+
 ## [1.12.0]
 
 ### Fixed

@@ -252,6 +252,8 @@ Genauer als jede Rechnung: Eimer-Test – Leitung X Minuten laufen lassen, Menge
 
 **`field_capacity_mm`** (Standard 20) – nutzbare Feldkapazität der Wurzelzone. Obergrenze für `carry`: mehr Wasser, als der Boden halten kann, würde beim Gießen unterhalb der Wurzeln versickern. Richtwerte: Sand 10–15, Lehm 20–30, Ton 25–35 mm.
 
+Die Feldkapazität bestimmt zugleich die **Untergrenze** des Defizits (15 % der Feldkapazität, negativ – bei 20 mm also −3,0 mm). Ein negatives Defizit bedeutet „Boden voller als der Zielzustand"; über die Sättigung hinaus läuft Wasser durch die Wurzelzone hindurch ab und ist verloren. Der kleine Puffer bildet Messungenauigkeit und die Reserve tieferer Bodenschichten ab und verhindert, dass ein Starkregen die Bewässerung tagelang blockiert.
+
 **`irrigation_efficiency`** (Standard 0,75 Sprinkler / 0,85 Tropfschlauch) – welcher Anteil der ausgebrachten Menge kommt tatsächlich an? Sprinkler verlieren real 20–30 % durch Windabdrift und Verdunstung. Die **Bewässerungsdauer** rechnet automatisch die nötige Brutto-Menge (`carry ÷ Wirkungsgrad`); zurückgemeldet werden sollte an `reset_deficit` die **Netto**-Menge (siehe Beispiel 1 oben).
 
 **`min_days`** – Mindestabstand zwischen zwei Bewässerungen (Standard 1). Höhere Werte fördern seltenes, dafür tieferes Gießen.
