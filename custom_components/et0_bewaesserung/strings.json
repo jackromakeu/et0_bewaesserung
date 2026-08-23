@@ -25,33 +25,6 @@
           "pv_tilt": "PV-Dachneigung (Grad, 0 = Korrektur aus)",
           "pv_azimuth": "PV-Ausrichtung (0 = Süd, -90 = Ost, +90 = West)"
         }
-      },
-      "zones": {
-        "title": "ET0 Bewässerung einrichten (2/2 - Zonen)",
-        "description": "Für jede Zone: Name leer lassen, um den Slot zu deaktivieren. Kc-Faktor = Wasserbedarf relativ zu Referenzgras. Tropfrate = Wasserabgabe deiner Anlage in mm pro Minute.",
-        "data": {
-          "zone_0_name": "Zone 1 - Name",
-          "zone_0_kc": "Zone 1 - Kc-Faktor",
-          "zone_0_drip_rate": "Zone 1 - Tropfrate (mm/min)",
-          "zone_1_name": "Zone 2 - Name",
-          "zone_1_kc": "Zone 2 - Kc-Faktor",
-          "zone_1_drip_rate": "Zone 2 - Tropfrate (mm/min)",
-          "zone_2_name": "Zone 3 - Name",
-          "zone_2_kc": "Zone 3 - Kc-Faktor",
-          "zone_2_drip_rate": "Zone 3 - Tropfrate (mm/min)",
-          "zone_0_min_days": "Zone 1 - Mindestabstand (Tage)",
-          "zone_1_min_days": "Zone 2 - Mindestabstand (Tage)",
-          "zone_2_min_days": "Zone 3 - Mindestabstand (Tage)",
-          "zone_0_min_deficit_mm": "Zone 1 - Mindestdefizit (mm)",
-          "zone_1_min_deficit_mm": "Zone 2 - Mindestdefizit (mm)",
-          "zone_2_min_deficit_mm": "Zone 3 - Mindestdefizit (mm)",
-          "zone_0_field_capacity_mm": "Zone 1 - Feldkapazität (mm, Defizit-Obergrenze)",
-          "zone_0_irrigation_efficiency": "Zone 1 - Wirkungsgrad Ausbringung (0.75 = 25% Verlust)",
-          "zone_1_field_capacity_mm": "Zone 2 - Feldkapazität (mm, Defizit-Obergrenze)",
-          "zone_1_irrigation_efficiency": "Zone 2 - Wirkungsgrad Ausbringung (0.75 = 25% Verlust)",
-          "zone_2_field_capacity_mm": "Zone 3 - Feldkapazität (mm, Defizit-Obergrenze)",
-          "zone_2_irrigation_efficiency": "Zone 3 - Wirkungsgrad Ausbringung (0.75 = 25% Verlust)"
-        }
       }
     },
     "error": {
@@ -86,33 +59,6 @@
           "pv_tilt": "PV-Dachneigung (Grad, 0 = Korrektur aus)",
           "pv_azimuth": "PV-Ausrichtung (0 = Süd, -90 = Ost, +90 = West)"
         }
-      },
-      "zones": {
-        "title": "ET0 Bewässerung konfigurieren (2/2 - Zonen)",
-        "description": "Für jede Zone: Name leer lassen, um den Slot zu deaktivieren. Kc-Faktor = Wasserbedarf relativ zu Referenzgras. Tropfrate = Wasserabgabe deiner Anlage in mm pro Minute.",
-        "data": {
-          "zone_0_name": "Zone 1 - Name",
-          "zone_0_kc": "Zone 1 - Kc-Faktor",
-          "zone_0_drip_rate": "Zone 1 - Tropfrate (mm/min)",
-          "zone_1_name": "Zone 2 - Name",
-          "zone_1_kc": "Zone 2 - Kc-Faktor",
-          "zone_1_drip_rate": "Zone 2 - Tropfrate (mm/min)",
-          "zone_2_name": "Zone 3 - Name",
-          "zone_2_kc": "Zone 3 - Kc-Faktor",
-          "zone_2_drip_rate": "Zone 3 - Tropfrate (mm/min)",
-          "zone_0_min_days": "Zone 1 - Mindestabstand (Tage)",
-          "zone_1_min_days": "Zone 2 - Mindestabstand (Tage)",
-          "zone_2_min_days": "Zone 3 - Mindestabstand (Tage)",
-          "zone_0_min_deficit_mm": "Zone 1 - Mindestdefizit (mm)",
-          "zone_1_min_deficit_mm": "Zone 2 - Mindestdefizit (mm)",
-          "zone_2_min_deficit_mm": "Zone 3 - Mindestdefizit (mm)",
-          "zone_0_field_capacity_mm": "Zone 1 - Feldkapazität (mm, Defizit-Obergrenze)",
-          "zone_0_irrigation_efficiency": "Zone 1 - Wirkungsgrad Ausbringung (0.75 = 25% Verlust)",
-          "zone_1_field_capacity_mm": "Zone 2 - Feldkapazität (mm, Defizit-Obergrenze)",
-          "zone_1_irrigation_efficiency": "Zone 2 - Wirkungsgrad Ausbringung (0.75 = 25% Verlust)",
-          "zone_2_field_capacity_mm": "Zone 3 - Feldkapazität (mm, Defizit-Obergrenze)",
-          "zone_2_irrigation_efficiency": "Zone 3 - Wirkungsgrad Ausbringung (0.75 = 25% Verlust)"
-        }
       }
     },
     "error": {
@@ -125,6 +71,45 @@
     "health_generic": {
       "title": "ET0 Bewässerung: Problem erkannt",
       "description": "{details}\n\nDetails findest du am Sensor \"Systemzustand\" der Integration."
+    }
+  },
+  "config_subentries": {
+    "zone": {
+      "title": "Bewässerungszone",
+      "step": {
+        "user": {
+          "title": "Zone hinzufügen",
+          "description": "Jede Zone bekommt ein eigenes Gerät mit eigenen Sensoren.",
+          "data": {
+            "name": "Name der Zone (z.B. Rasen, Sträucher)",
+            "kc": "Kc-Faktor (Rasen 0,70-0,85 · Beete 0,90-1,10 · Sträucher 0,40-0,55)",
+            "drip_rate": "Tropfrate (mm/min)",
+            "min_days": "Mindestabstand zwischen Bewässerungen (Tage)",
+            "min_deficit_mm": "Mindestdefizit, ab dem gegossen wird (mm)",
+            "field_capacity_mm": "Feldkapazität der Wurzelzone (mm)",
+            "irrigation_efficiency": "Wirkungsgrad Ausbringung (0,75 = 25 % Verlust)"
+          }
+        },
+        "reconfigure": {
+          "title": "Zone bearbeiten",
+          "data": {
+            "name": "Name der Zone (z.B. Rasen, Sträucher)",
+            "kc": "Kc-Faktor (Rasen 0,70-0,85 · Beete 0,90-1,10 · Sträucher 0,40-0,55)",
+            "drip_rate": "Tropfrate (mm/min)",
+            "min_days": "Mindestabstand zwischen Bewässerungen (Tage)",
+            "min_deficit_mm": "Mindestdefizit, ab dem gegossen wird (mm)",
+            "field_capacity_mm": "Feldkapazität der Wurzelzone (mm)",
+            "irrigation_efficiency": "Wirkungsgrad Ausbringung (0,75 = 25 % Verlust)"
+          }
+        }
+      },
+      "error": {
+        "zone_name_required": "Bitte einen Namen für die Zone angeben."
+      },
+      "initiate_flow": {
+        "user": "Zone hinzufügen"
+      },
+      "entry_type": "Bewässerungszone"
     }
   }
 }

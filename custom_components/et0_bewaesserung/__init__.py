@@ -60,16 +60,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def handle_reset_deficit(call: ServiceCall) -> None:
         zone_name = call.data.get("zone")
         amount_mm = call.data.get("amount_mm")
-        zone_index = None
+        zone_id = None
         if zone_name:
             zone_name_norm = _normalize(zone_name)
             for zone in coordinator.get_zone_definitions():
                 if _normalize(zone["name"]) == zone_name_norm:
-                    zone_index = zone["index"]
+                    zone_id = zone["id"]
                     break
             else:
                 raise HomeAssistantError(f"Zone '{zone_name}' nicht gefunden")
-        await coordinator.async_reset_deficit(zone_index, amount_mm=amount_mm)
+        await coordinator.async_reset_deficit(zone_id, amount_mm=amount_mm)
 
     hass.services.async_register(DOMAIN, "recalculate", handle_recalculate)
     hass.services.async_register(

@@ -35,8 +35,14 @@ from .const import (
     CONF_UPDATE_TIME,
     DEFAULT_UPDATE_TIME,
     ALBEDO,
-    MAX_ZONES,
-    DEFAULT_ZONE_NAMES,
+    SUBENTRY_TYPE_ZONE,
+    CONF_ZONE_NAME,
+    CONF_ZONE_KC,
+    CONF_ZONE_DRIP_RATE,
+    CONF_ZONE_MIN_DAYS,
+    CONF_ZONE_MIN_DEFICIT_MM,
+    CONF_ZONE_FIELD_CAPACITY,
+    CONF_ZONE_IRRIGATION_EFFICIENCY,
     DEFAULT_ZONE_KC,
     DEFAULT_ZONE_DRIP_RATE,
     DEFAULT_ZONE_MIN_DAYS,
@@ -44,7 +50,6 @@ from .const import (
     DEFAULT_ZONE_FIELD_CAPACITY,
     DEFICIT_FLOOR_RATIO,
     DEFAULT_ZONE_IRRIGATION_EFFICIENCY,
-    zone_key,
     CONF_RAIN_SKIP_ENABLED,
     CONF_RAIN_SKIP_THRESHOLD,
     DEFAULT_RAIN_SKIP_ENABLED,
@@ -92,12 +97,12 @@ class Et0Coordinator(DataUpdateCoordinator):
         #          Tageswechsel wandert today in carry (Rollover).
         self._season_et0_carry = 0.0
         self._today_et0 = 0.0
-        self._zone_carry: dict[int, float] = {}
-        self._zone_today: dict[int, float] = {}
+        self._zone_carry: dict[str, float] = {}
+        self._zone_today: dict[str, float] = {}
         self._current_day: str | None = None
         self._last_known_values: dict[str, dict] = {}
         self._fallback_used_this_run: set[str] = set()
-        self._last_watered: dict[int, dict] = {}
+        self._last_watered: dict[str, dict] = {}
         self._season_active: bool = True
         self._equipment_stored: bool = False
         self._frost_warning_active: bool = False
@@ -126,7 +131,7 @@ class Et0Coordinator(DataUpdateCoordinator):
         if stored:
             self._last_known_values = stored.get("last_known_values", {})
             self._last_watered = {
-                int(k): v for k, v in stored.get("last_watered", {}).items()
+                str(k): v for k, v in stored.get("last_watered", {}).items()
             }
             self._last_success = stored.get("last_success")
             self._last_day_gap = stored.get("last_day_gap", 1)
@@ -148,232 +153,15 @@ class Et0Coordinator(DataUpdateCoordinator):
             # globalen Schlüssels - die Zonendaten liegen in beiden unter
             # "zone_carry". Wer das übersieht, verliert beim Update genau
             # diese Zonendaten (Bug in 1.5.0/1.6.0, hier behoben).
-            has_v15 = "season_et0_carry" in stored
-            has_v14 = "carry_deficit" in stored
-
-            if has_v15 or has_v14:
-                self._season_et0_carry = stored.get(
-                    "season_et0_carry", stored.get("carry_deficit", 0.0)
-                )
-                self._today_et0 = stored.get(
-                    "today_et0", stored.get("today_deficit", 0.0)
-                )
-                self._zone_carry = {
-                    int(k): v for k, v in stored.get("zone_carry", {}).items()
-                }
-                self._zone_today = {
-                    int(k): v for k, v in stored.get("zone_today", {}).items()
-                }
-                self._current_day = stored.get("current_day")
-                if has_v14 and not has_v15:
-                    # Der alte globale Wert war eine Bilanz, keine ET0-Summe
-                    # -> als Saisonsumme nicht sinnvoll weiterverwendbar.
-                    self._season_et0_carry = 0.0
-                    _LOGGER.info(
-                        "Storage von v1.4.0 gelesen: Zonen-Defizite übernommen, "
-                        "ET0-Saisonsumme startet neu bei 0"
-                    )
-            else:
-                # --- Migration vom alten additiven Format ---
-                # Zonen: das alte "zone_deficits" enthielt bereits ALLES inkl.
-                # des heutigen Beitrags. Wir übernehmen es als carry und
-                # rechnen den bekannten heutigen Beitrag heraus, damit er
-                # nicht doppelt zählt (einmal in carry, einmal neu in today).
-                old_today_zones = {
-                    int(k): v for k, v in stored.get("today_contribution", {}).items()
-                }
-                old_processed = stored.get("last_processed_date")
-                today_iso = date.today().isoformat()
-
-                self._zone_carry = {
-                    int(k): v for k, v in stored.get("zone_deficits", {}).items()
-                }
-                if old_processed == today_iso:
-                    for idx, delta in old_today_zones.items():
-                        self._zone_carry[idx] = max(
-                            self._zone_carry.get(idx, 0.0) - delta,
-                            self._deficit_floor(idx),
-                        )
-                # Global: der alte Wert war eine (nie zurückgesetzte) Bilanz,
-                # nicht die kumulierte Verdunstung. Er lässt sich nicht sinnvoll
-                # in eine ET0-Saisonsumme umrechnen -> sauberer Neustart bei 0.
-                self._season_et0_carry = 0.0
-                self._today_et0 = 0.0
-                self._zone_today = {}
-                self._current_day = today_iso
-                _LOGGER.info(
-                    "Datenmodell migriert: Zonen-Defizite übernommen, "
-                    "ET0-Saisonsumme startet neu bei 0"
-                )
-
-        update_time = self.entry.options.get(
-            CONF_UPDATE_TIME,
-            self.entry.data.get(CONF_UPDATE_TIME, DEFAULT_UPDATE_TIME),
-        )
-        # Robust gegen "HH:MM" (z.B. von einem Zeit-Picker ohne Sekunden) und
-        # "HH:MM:SS" - Sekunden fehlen einfach auf 0 ergänzen.
-        time_parts = update_time.split(":")
-        h = int(time_parts[0])
-        m = int(time_parts[1])
-        s = int(time_parts[2]) if len(time_parts) > 2 else 0
-
-        if DIAGNOSE_MODE:
-            _LOGGER.warning(
-                "ET0 Bewässerung läuft im DIAGNOSE-MODUS: stündlich zu Minute "
-                ":%02d:%02d statt nur einmal täglich um %s. Zum Zurückstellen "
-                "DIAGNOSE_MODE in const.py auf False setzen!",
-                m,
-                s,
-                update_time,
-            )
-            self._unsub_time = async_track_time_change(
-                self.hass, self._handle_scheduled_update, minute=m, second=s
-            )
-        else:
-            self._unsub_time = async_track_time_change(
-                self.hass, self._handle_scheduled_update, hour=h, minute=m, second=s
-            )
-
-        # --- Mitternachts-Rollover ---
-        # ZWINGEND nötig: Ohne diesen Timer wandert der Beitrag des
-        # abgelaufenen Tages erst beim NÄCHSTEN Berechnungslauf (23:09) nach
-        # carry - die Bewässerung um ~5 Uhr würde bis dahin mit einem einen
-        # Tag alten Defizit arbeiten. Läuft kurz nach Mitternacht, damit die
-        # Gieß-Automation am Morgen den aktuellen Wert vorfindet.
-        self._unsub_rollover = async_track_time_change(
-            self.hass, self._handle_midnight_rollover, hour=0, minute=0, second=30
-        )
-
-    @callback
-    def _handle_midnight_rollover(self, now) -> None:
-        self.hass.async_create_task(self._async_do_midnight_rollover())
-
-    async def _async_do_midnight_rollover(self) -> None:
-        """Schiebt den Tagesbeitrag nach carry und aktualisiert die Sensoren.
-
-        Bewusst OHNE Neuberechnung: Um Mitternacht steht der PV-Ertrag auf 0,
-        eine ET0-Berechnung würde hier unbrauchbare Werte liefern. Es werden
-        nur die vorhandenen Werte umgebucht.
-        """
-        if self._rollover_if_needed():
-            await self._persist()
-            # Sensoren mit dem umgebuchten Stand aktualisieren, ohne die
-            # ET0-Werte neu zu berechnen
-            if self.data:
-                new_data = dict(self.data)
-                new_data["season_et0_sum"] = round(
-                    self._season_et0_carry + self._today_et0, 2
-                )
-                new_data["today_contribution_global"] = round(self._today_et0, 2)
-                new_data["current_day"] = self._current_day
-                zones = dict(new_data.get("zones", {}))
-                for idx, zdata in zones.items():
-                    carry = self._zone_carry.get(idx, 0.0)
-                    zd = dict(zdata)
-                    zd["deficit"] = round(carry, 2)
-                    zd["deficit_running"] = round(
-                        max(
-                            carry + self._zone_today.get(idx, 0.0),
-                            self._deficit_floor(idx),
-                        ),
-                        2,
-                    )
-                    zd["today_contribution_mm"] = round(
-                        self._zone_today.get(idx, 0.0), 2
-                    )
-                    # Regen-/Frost-Skip wurden im Rollover bereits von
-                    # "morgen" (gestern ermittelt) zu "heute" übernommen -
-                    # genau diese frischen Werte gelten jetzt, nicht die
-                    # gestrigen aus dem alten Zonen-Dict.
-                    zd["rain_skip"] = self._rain_skip_today
-                    zd["frost_skip"] = self._frost_skip_today
-                    # Gieß-Freigabe mit dem neuen carry neu bewerten
-                    for zone in self.get_zone_definitions():
-                        if zone["index"] != idx:
-                            continue
-                        min_ok, days_since = self._min_interval_status(
-                            idx, zone["min_days"]
-                        )
-                        min_def_ok = carry >= zone["min_deficit_mm"]
-                        allowed = (
-                            not self._rain_skip_today
-                            and not self._frost_skip_today
-                            and min_ok
-                            and min_def_ok
-                        )
-                        zd["min_interval_ok"] = min_ok
-                        zd["days_since_watered"] = days_since
-                        zd["min_deficit_ok"] = min_def_ok
-                        zd["watering_allowed"] = allowed
-                        eff = zone["irrigation_efficiency"]
-                        gross = max(carry, 0.0) / eff if eff > 0 else max(carry, 0.0)
-                        zd["gross_mm"] = round(gross, 2)
-                        zd["duration_min"] = (
-                            round(gross / zone["drip_rate"], 1)
-                            if allowed and zone["drip_rate"] > 0
-                            else 0.0
-                        )
-                    zones[idx] = zd
-                new_data["zones"] = zones
-                self.async_set_updated_data(new_data)
-
-    def async_unload(self) -> None:
-        if self._unsub_time:
-            self._unsub_time()
-        if self._unsub_retry:
-            self._unsub_retry()
-        if self._unsub_rollover:
-            self._unsub_rollover()
-
-    @callback
-    def _handle_scheduled_update(self, now) -> None:
-        self.hass.async_create_task(self._run_scheduled_with_retry(attempt=1))
-
-    async def _run_scheduled_with_retry(self, attempt: int) -> None:
-        """Führt den geplanten Tageslauf aus und versucht es bei Fehlern erneut.
-
-        Ohne das würde z.B. ein HA-Neustart genau um 23:30 (Update, Stromausfall)
-        dazu führen, dass eine Quelle kurzzeitig 'unavailable' ist, die Berechnung
-        fehlschlägt und der ganze Tag stillschweigend ausgelassen wird.
-        """
-        await self.async_refresh()
-        if self.last_update_success:
-            _LOGGER.info(
-                "Planmäßige ET0-Berechnung erfolgreich (Versuch %s) - "
-                "ET0=%.2f mm, Niederschlagsquelle=%s",
-                attempt,
-                (self.data or {}).get("et0", -1),
-                (self.data or {}).get("precipitation_source", "?"),
-            )
-            return
-
-        if attempt >= MAX_RETRIES:
-            _LOGGER.error(
-                "ET0-Berechnung nach %s Versuchen weiterhin fehlgeschlagen - "
-                "heutiger Lauf wird ausgelassen. Ursache: %s",
-                attempt,
-                self.last_exception,
-            )
-            return
-
-        _LOGGER.warning(
-            "ET0-Berechnung fehlgeschlagen (Versuch %s/%s) - nächster Versuch in "
-            "%s Minuten. Ursache: %s",
-            attempt,
-            MAX_RETRIES,
-            RETRY_DELAY_MINUTES,
-            self.last_exception,
-        )
-
-        async def _retry(_now) -> None:
-            await self._run_scheduled_with_retry(attempt + 1)
-
-        self._unsub_retry = async_call_later(
-            self.hass, RETRY_DELAY_MINUTES * 60, _retry
-        )
-
-    def _get_config(self, key, default=None):
-        return self.entry.options.get(key, self.entry.data.get(key, default))
+            self._season_et0_carry = stored.get("season_et0_carry", 0.0)
+            self._today_et0 = stored.get("today_et0", 0.0)
+            self._zone_carry = {
+                str(k): v for k, v in stored.get("zone_carry", {}).items()
+            }
+            self._zone_today = {
+                str(k): v for k, v in stored.get("zone_today", {}).items()
+            }
+            self._current_day = stored.get("current_day")
 
     async def _persist(self) -> None:
         """Speichert den kompletten persistenten Zustand an einer Stelle."""
@@ -428,7 +216,7 @@ class Et0Coordinator(DataUpdateCoordinator):
             # größtenteils unterhalb der Wurzeln versickert. Ohne Deckel wächst
             # das Defizit z.B. über einen Urlaub unbegrenzt weiter.
             capacities = {
-                z["index"]: z["field_capacity_mm"]
+                z["id"]: z["field_capacity_mm"]
                 for z in self.get_zone_definitions()
             }
             for idx, val in self._zone_today.items():
@@ -465,7 +253,7 @@ class Et0Coordinator(DataUpdateCoordinator):
         self._current_day = today_iso
         return True
 
-    def _deficit_floor(self, zone_index: int) -> float:
+    def _deficit_floor(self, zone_id: str) -> float:
         """Untergrenze des Defizits einer Zone (negativer Wert, in mm).
 
         Leitet sich aus der zonenspezifischen Feldkapazität ab statt aus einer
@@ -475,62 +263,61 @@ class Et0Coordinator(DataUpdateCoordinator):
         längst wieder abgetrocknet ist.
         """
         for zone in self.get_zone_definitions():
-            if zone["index"] == zone_index:
+            if zone["id"] == zone_id:
                 return -zone["field_capacity_mm"] * DEFICIT_FLOOR_RATIO
-        return -DEFAULT_ZONE_FIELD_CAPACITY[0] * DEFICIT_FLOOR_RATIO
+        return -DEFAULT_ZONE_FIELD_CAPACITY * DEFICIT_FLOOR_RATIO
 
     def get_zone_definitions(self) -> list[dict]:
-        """Liefert die konfigurierten, aktiven Zonen (leerer Name = deaktiviert)."""
+        """Liefert alle konfigurierten Zonen aus den Config-Subentries.
+
+        Jede Zone ist ein eigener Subentry; die Subentry-ID dient als
+        stabiler Schlüssel für Bilanz, Speicherung und Entity-IDs. Anders
+        als beim früheren indexbasierten Ansatz bleibt die Zuordnung auch
+        dann korrekt, wenn Zonen zwischendurch entfernt werden.
+        """
         zones = []
-        for i in range(MAX_ZONES):
-            name = self._get_config(zone_key(i, "name"), DEFAULT_ZONE_NAMES[i])
+        for subentry_id, subentry in self.entry.subentries.items():
+            if subentry.subentry_type != SUBENTRY_TYPE_ZONE:
+                continue
+            data = subentry.data
+            name = (data.get(CONF_ZONE_NAME) or "").strip()
             if not name:
                 continue
-            kc = float(self._get_config(zone_key(i, "kc"), DEFAULT_ZONE_KC[i]))
-            drip_rate = float(
-                self._get_config(zone_key(i, "drip_rate"), DEFAULT_ZONE_DRIP_RATE[i])
-            )
-            min_days = int(
-                self._get_config(zone_key(i, "min_days"), DEFAULT_ZONE_MIN_DAYS[i])
-            )
-            min_deficit_mm = float(
-                self._get_config(
-                    zone_key(i, "min_deficit_mm"), DEFAULT_ZONE_MIN_DEFICIT_MM[i]
-                )
-            )
-            field_capacity = float(
-                self._get_config(
-                    zone_key(i, "field_capacity_mm"), DEFAULT_ZONE_FIELD_CAPACITY[i]
-                )
-            )
-            irrigation_efficiency = float(
-                self._get_config(
-                    zone_key(i, "irrigation_efficiency"),
-                    DEFAULT_ZONE_IRRIGATION_EFFICIENCY[i],
-                )
-            )
             zones.append(
                 {
-                    "index": i,
+                    "id": subentry_id,
                     "name": name,
-                    "kc": kc,
-                    "drip_rate": drip_rate,
-                    "min_days": min_days,
-                    "min_deficit_mm": min_deficit_mm,
-                    "field_capacity_mm": field_capacity,
-                    "irrigation_efficiency": irrigation_efficiency,
+                    "kc": float(data.get(CONF_ZONE_KC, DEFAULT_ZONE_KC)),
+                    "drip_rate": float(
+                        data.get(CONF_ZONE_DRIP_RATE, DEFAULT_ZONE_DRIP_RATE)
+                    ),
+                    "min_days": int(
+                        data.get(CONF_ZONE_MIN_DAYS, DEFAULT_ZONE_MIN_DAYS)
+                    ),
+                    "min_deficit_mm": float(
+                        data.get(CONF_ZONE_MIN_DEFICIT_MM, DEFAULT_ZONE_MIN_DEFICIT_MM)
+                    ),
+                    "field_capacity_mm": float(
+                        data.get(CONF_ZONE_FIELD_CAPACITY, DEFAULT_ZONE_FIELD_CAPACITY)
+                    ),
+                    "irrigation_efficiency": float(
+                        data.get(
+                            CONF_ZONE_IRRIGATION_EFFICIENCY,
+                            DEFAULT_ZONE_IRRIGATION_EFFICIENCY,
+                        )
+                    ),
                 }
             )
         return zones
 
-    def _min_interval_status(self, zone_index: int, min_days: int) -> tuple[bool, int | None]:
+    def _min_interval_status(self, zone_id: str, min_days: int) -> tuple[bool, int | None]:
         """Prüft den Mindestabstand seit der letzten Bewässerung dieser Zone.
 
         Gibt (mindestabstand_erfuellt, tage_seit_letzter_bewaesserung) zurück.
         Noch nie bewässert -> Abstand gilt als erfüllt (kein künstliches
         Warten vor der allerersten Bewässerung).
         """
-        watered_info = self._last_watered.get(zone_index)
+        watered_info = self._last_watered.get(zone_id)
         if not watered_info or not watered_info.get("timestamp"):
             return True, None
 
@@ -913,7 +700,7 @@ class Et0Coordinator(DataUpdateCoordinator):
 
         zones_data: dict[int, dict] = {}
         for zone in self.get_zone_definitions():
-            idx = zone["index"]
+            idx = zone["id"]
             etc = calculate_etc(result["et0"], zone["kc"])
             self._zone_today[idx] = etc - precipitation
 
@@ -1059,7 +846,7 @@ class Et0Coordinator(DataUpdateCoordinator):
         self._known_issue_ids = active_codes
 
     async def async_reset_deficit(
-        self, zone_index: int | None = None, amount_mm: float | None = None
+        self, zone_id: str | None = None, amount_mm: float | None = None
     ) -> None:
         """Setzt die Wasserbilanz zurück - global (None) oder für eine einzelne Zone.
 
@@ -1076,11 +863,11 @@ class Et0Coordinator(DataUpdateCoordinator):
         Wird `amount_mm` NICHT angegeben (z.B. manueller Admin-Reset ohne
         genaue Mengenangabe), bleibt das alte Verhalten (hart auf 0) erhalten.
 
-        Ein globaler Reset (zone_index=None, z.B. zur Fehlerkorrektur oder
+        Ein globaler Reset (zone_id=None, z.B. zur Fehlerkorrektur oder
         beim Saisonwechsel) zählt NICHT als "gegossen" und setzt weiterhin
         immer hart auf 0 - inklusive des laufenden Tages.
         """
-        if zone_index is None:
+        if zone_id is None:
             self._season_et0_carry = 0.0
             self._today_et0 = 0.0
             self._zone_carry = {k: 0.0 for k in self._zone_carry}
@@ -1089,13 +876,13 @@ class Et0Coordinator(DataUpdateCoordinator):
             # Bewässerung reduziert die Basis abgeschlossener Tage (carry) -
             # das ist der Wert, auf dem die Gieß-Entscheidung beruht.
             if amount_mm is not None:
-                current = self._zone_carry.get(zone_index, 0.0)
-                self._zone_carry[zone_index] = max(
-                    current - amount_mm, self._deficit_floor(zone_index)
+                current = self._zone_carry.get(zone_id, 0.0)
+                self._zone_carry[zone_id] = max(
+                    current - amount_mm, self._deficit_floor(zone_id)
                 )
             else:
-                self._zone_carry[zone_index] = 0.0
-            self._last_watered[zone_index] = {
+                self._zone_carry[zone_id] = 0.0
+            self._last_watered[zone_id] = {
                 "timestamp": dt_util.now().isoformat(),
                 "amount_mm": amount_mm,
             }

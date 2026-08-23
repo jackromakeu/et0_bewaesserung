@@ -30,46 +30,35 @@ ALBEDO = 0.23
 STORAGE_VERSION = 1
 STORAGE_KEY = f"{DOMAIN}_deficit"
 
-# --- Zonen (Kc-Faktor pro Bewässerungsbereich) ---
-MAX_ZONES = 3
-DEFAULT_ZONE_NAMES = ["Rasen", "Beete", "Hecken"]
-# Kc-Startwerte nach FAO-56, grobe Richtwerte - je nach Bepflanzung anpassen
-DEFAULT_ZONE_KC = [0.90, 1.00, 0.50]
+# --- Zonen (seit v2.0.0 als Config-Subentries, nicht mehr indexbasiert) ---
+# Jede Zone ist ein eigener Subentry mit eigenem Gerät. Die Anzahl ist
+# dadurch nicht mehr begrenzt (früher MAX_ZONES = 3).
+SUBENTRY_TYPE_ZONE = "zone"
+
+CONF_ZONE_NAME = "name"
+CONF_ZONE_KC = "kc"
+CONF_ZONE_DRIP_RATE = "drip_rate"
+CONF_ZONE_MIN_DAYS = "min_days"
+CONF_ZONE_MIN_DEFICIT_MM = "min_deficit_mm"
+CONF_ZONE_FIELD_CAPACITY = "field_capacity_mm"
+CONF_ZONE_IRRIGATION_EFFICIENCY = "irrigation_efficiency"
+
+# Kc: Verhältnis Pflanzenbedarf zu Referenzgras (FAO-56)
+DEFAULT_ZONE_KC = 0.80
 # mm Wasserabgabe pro Minute - MUSS an die eigene Anlage angepasst werden
-DEFAULT_ZONE_DRIP_RATE = [0.25, 0.20, 0.15]
-# Mindestabstand in Tagen zwischen zwei Bewässerungen derselben Zone -
-# Standard 1 = aktuelles Verhalten unverändert (max. 1x/Tag durch Tages-Sperre)
-DEFAULT_ZONE_MIN_DAYS = [1, 1, 1]
-# Mindest-Defizit in mm, ab dem überhaupt gegossen wird - verhindert
-# Bewässerung bei nur geringfügigem Wasserbedarf
-DEFAULT_ZONE_MIN_DEFICIT_MM = [1.5, 1.5, 1.5]
+DEFAULT_ZONE_DRIP_RATE = 0.25
+# Mindestabstand in Tagen zwischen zwei Bewässerungen derselben Zone
+DEFAULT_ZONE_MIN_DAYS = 1
+# Mindest-Defizit in mm, ab dem überhaupt gegossen wird
+DEFAULT_ZONE_MIN_DEFICIT_MM = 1.5
 # Nutzbare Feldkapazität der Wurzelzone in mm - Obergrenze für das Defizit.
-# Mehr Wasser als das kann der Boden nicht halten; alles darüber versickert
-# unterhalb der Wurzeln und ist verloren. Richtwerte: Sand 10-15, Lehm 20-30,
-# Ton 25-35 mm bei üblicher Rasendurchwurzelung. Konservativ = niedriger
-# Wert (führt zu häufigerem, kleinerem Gießen statt seltener Überwässerung).
-DEFAULT_ZONE_FIELD_CAPACITY = [20.0, 20.0, 20.0]
-# Untergrenze des Defizits, als ANTEIL der Feldkapazität. Ein negatives
-# Defizit bedeutet "Boden voller als der Zielzustand" - der Boden kann aber
-# nicht beliebig viel speichern: ist die Feldkapazität erreicht, läuft
-# zusätzliches Wasser durch die Wurzelzone hindurch ab (Perkolation) und ist
-# für die Pflanze verloren. Fachlich wäre 0 die exakte Grenze; der kleine
-# negative Puffer bildet Messungenauigkeit (Radar-Näherung,
-# Wirksamkeitsfaktor) und Restreserve tieferer Bodenschichten ab.
-# Zuvor war das eine feste Konstante von -10 mm, die unabhängig von der
-# Bodenart galt und nach Regenphasen zu spätem Gießen führen konnte.
+# Richtwerte: Sand 10-15, Lehm 20-30, Ton 25-35 mm.
+DEFAULT_ZONE_FIELD_CAPACITY = 20.0
+# Wirkungsgrad der Ausbringung: Anteil, der die Wurzelzone erreicht.
+# Sprinkler ~0.75, Tropfschlauch ~0.85-0.95
+DEFAULT_ZONE_IRRIGATION_EFFICIENCY = 0.75
+# Untergrenze des Defizits als Anteil der Feldkapazität (siehe README)
 DEFICIT_FLOOR_RATIO = 0.15
-# Wirkungsgrad der Ausbringung: welcher Anteil kommt in der Wurzelzone an?
-# Sprinkler/Rotoren verlieren durch Windabdrift, Verdunstung und ungleiche
-# Verteilung typisch 20-30%; Tropfschläuche kaum (0.9-0.95).
-# Konservativ = niedriger Wert (es wird MEHR ausgebracht, um das Defizit
-# rechnerisch zu decken).
-DEFAULT_ZONE_IRRIGATION_EFFICIENCY = [0.75, 0.85, 0.75]
-
-
-def zone_key(index: int, field: str) -> str:
-    """Baut den Config-Key für ein Zonen-Feld, z.B. zone_0_name."""
-    return f"zone_{index}_{field}"
 
 
 # --- Vorausschauender Regen-Skip ---

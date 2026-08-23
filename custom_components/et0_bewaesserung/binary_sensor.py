@@ -17,20 +17,25 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator: Et0Coordinator = hass.data[DOMAIN][entry.entry_id]
-    entities: list[Et0BinaryBaseEntity] = [
-        FrostWarningSensor(coordinator, entry),
-        SpringReadySensor(coordinator, entry),
-        EquipmentStoredSensor(coordinator, entry),
-        RainExpectedSensor(coordinator, entry),
-    ]
+    async_add_entities(
+        [
+            FrostWarningSensor(coordinator, entry),
+            SpringReadySensor(coordinator, entry),
+            EquipmentStoredSensor(coordinator, entry),
+            RainExpectedSensor(coordinator, entry),
+        ]
+    )
 
     for zone in coordinator.get_zone_definitions():
-        idx = zone["index"]
+        zid = zone["id"]
         name = zone["name"]
-        entities.append(ZoneMinIntervalSensor(coordinator, entry, idx, name))
-        entities.append(ZoneMinDeficitSensor(coordinator, entry, idx, name))
-
-    async_add_entities(entities)
+        async_add_entities(
+            [
+                ZoneMinIntervalSensor(coordinator, entry, zid, name),
+                ZoneMinDeficitSensor(coordinator, entry, zid, name),
+            ],
+            config_subentry_id=zid,
+        )
 
 
 class Et0BinaryBaseEntity(CoordinatorEntity[Et0Coordinator], BinarySensorEntity):
@@ -145,14 +150,20 @@ class RainExpectedSensor(Et0BinaryBaseEntity):
 class ZoneBinaryBaseEntity(Et0BinaryBaseEntity):
     """Basis für alle Zonen-spezifischen Binary-Sensoren."""
 
-    def __init__(self, coordinator, entry, zone_index: int, zone_name: str):
+    def __init__(self, coordinator, entry, zone_id: str, zone_name: str):
         super().__init__(coordinator, entry)
-        self._zone_index = zone_index
+        self._zone_id = zone_id
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{entry.entry_id}_{zone_id}")},
+            name=f"Zone {zone_name}",
+            manufacturer="Lokale ET0-Integration",
+            via_device=(DOMAIN, entry.entry_id),
+        )
 
     def _zone_data(self) -> dict | None:
         if not self.coordinator.data:
             return None
-        return self.coordinator.data.get("zones", {}).get(self._zone_index)
+        return self.coordinator.data.get("zones", {}).get(self._zone_id)
 
 
 class ZoneMinIntervalSensor(ZoneBinaryBaseEntity):
@@ -160,9 +171,9 @@ class ZoneMinIntervalSensor(ZoneBinaryBaseEntity):
 
     _attr_icon = "mdi:calendar-check"
 
-    def __init__(self, coordinator, entry, zone_index, zone_name):
-        super().__init__(coordinator, entry, zone_index, zone_name)
-        self._attr_unique_id = f"{entry.entry_id}_zone{zone_index}_min_interval"
+    def __init__(self, coordinator, entry, zone_id, zone_name):
+        super().__init__(coordinator, entry, zone_id, zone_name)
+        self._attr_unique_id = f"{entry.entry_id}_{zone_id}_min_interval"
         self._attr_name = f"Mindestabstand erfüllt {zone_name}"
 
     @property
@@ -183,9 +194,9 @@ class ZoneMinDeficitSensor(ZoneBinaryBaseEntity):
 
     _attr_icon = "mdi:water-check"
 
-    def __init__(self, coordinator, entry, zone_index, zone_name):
-        super().__init__(coordinator, entry, zone_index, zone_name)
-        self._attr_unique_id = f"{entry.entry_id}_zone{zone_index}_min_deficit"
+    def __init__(self, coordinator, entry, zone_id, zone_name):
+        super().__init__(coordinator, entry, zone_id, zone_name)
+        self._attr_unique_id = f"{entry.entry_id}_{zone_id}_min_deficit"
         self._attr_name = f"Mindestdefizit erfüllt {zone_name}"
 
     @property

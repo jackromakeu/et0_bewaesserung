@@ -24,24 +24,33 @@ async def async_setup_entry(
 ) -> None:
     coordinator: Et0Coordinator = hass.data[DOMAIN][entry.entry_id]
 
-    entities: list[Et0BaseEntity] = [
-        Et0Sensor(coordinator, entry),
-        RsProxySensor(coordinator, entry),
-        SeasonEt0SumSensor(coordinator, entry),
-        HealthSensor(coordinator, entry),
-        PrecipitationSensor(coordinator, entry),
-    ]
+    # Zonenunabhängige Sensoren am Haupt-Gerät
+    async_add_entities(
+        [
+            Et0Sensor(coordinator, entry),
+            RsProxySensor(coordinator, entry),
+            SeasonEt0SumSensor(coordinator, entry),
+            HealthSensor(coordinator, entry),
+            PrecipitationSensor(coordinator, entry),
+        ]
+    )
 
+    # Zonen-Sensoren jeweils an ihren Subentry gebunden. Der Parameter
+    # config_subentry_id sorgt dafür, dass HA sie dem richtigen Subentry
+    # (und damit dem eigenen Zonen-Gerät) zuordnet.
     for zone in coordinator.get_zone_definitions():
-        idx = zone["index"]
+        zid = zone["id"]
         name = zone["name"]
-        entities.append(ZoneEtcSensor(coordinator, entry, idx, name))
-        entities.append(ZoneDeficitSensor(coordinator, entry, idx, name))
-        entities.append(ZoneDurationSensor(coordinator, entry, idx, name))
-        entities.append(ZoneLastWateredSensor(coordinator, entry, idx, name))
-        entities.append(ZoneRunningDeficitSensor(coordinator, entry, idx, name))
-
-    async_add_entities(entities)
+        async_add_entities(
+            [
+                ZoneEtcSensor(coordinator, entry, zid, name),
+                ZoneDeficitSensor(coordinator, entry, zid, name),
+                ZoneDurationSensor(coordinator, entry, zid, name),
+                ZoneLastWateredSensor(coordinator, entry, zid, name),
+                ZoneRunningDeficitSensor(coordinator, entry, zid, name),
+            ],
+            config_subentry_id=zid,
+        )
 
 
 class Et0BaseEntity(CoordinatorEntity[Et0Coordinator], SensorEntity):
@@ -151,16 +160,28 @@ class SeasonEt0SumSensor(Et0BaseEntity):
 
 
 class ZoneBaseEntity(Et0BaseEntity):
-    """Basis für alle Zonen-Sensoren."""
+    """Basis für alle Zonen-Sensoren.
 
-    def __init__(self, coordinator, entry, zone_index: int, zone_name: str):
+    Jede Zone bekommt ein EIGENES Gerät, verknüpft über via_device mit dem
+    Haupt-Gerät. Seit HA 2026.07 darf ein Gerät ohnehin nur noch an einem
+    Subentry hängen - ein gemeinsames Gerät für alle Zonen wäre nicht mehr
+    zulässig.
+    """
+
+    def __init__(self, coordinator, entry, zone_id: str, zone_name: str):
         super().__init__(coordinator, entry)
-        self._zone_index = zone_index
+        self._zone_id = zone_id
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{entry.entry_id}_{zone_id}")},
+            name=f"Zone {zone_name}",
+            manufacturer="Lokale ET0-Integration",
+            via_device=(DOMAIN, entry.entry_id),
+        )
 
     def _zone_data(self) -> dict | None:
         if not self.coordinator.data:
             return None
-        return self.coordinator.data.get("zones", {}).get(self._zone_index)
+        return self.coordinator.data.get("zones", {}).get(self._zone_id)
 
 
 class ZoneEtcSensor(ZoneBaseEntity):
@@ -168,9 +189,9 @@ class ZoneEtcSensor(ZoneBaseEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:water"
 
-    def __init__(self, coordinator, entry, zone_index, zone_name):
-        super().__init__(coordinator, entry, zone_index, zone_name)
-        self._attr_unique_id = f"{entry.entry_id}_zone{zone_index}_etc"
+    def __init__(self, coordinator, entry, zone_id, zone_name):
+        super().__init__(coordinator, entry, zone_id, zone_name)
+        self._attr_unique_id = f"{entry.entry_id}_{zone_id}_etc"
         self._attr_name = f"ETc {zone_name}"
 
     @property
@@ -184,9 +205,9 @@ class ZoneDeficitSensor(ZoneBaseEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:water-alert"
 
-    def __init__(self, coordinator, entry, zone_index, zone_name):
-        super().__init__(coordinator, entry, zone_index, zone_name)
-        self._attr_unique_id = f"{entry.entry_id}_zone{zone_index}_deficit"
+    def __init__(self, coordinator, entry, zone_id, zone_name):
+        super().__init__(coordinator, entry, zone_id, zone_name)
+        self._attr_unique_id = f"{entry.entry_id}_{zone_id}_deficit"
         self._attr_name = f"Bewässerungsdefizit {zone_name}"
 
     @property
@@ -212,9 +233,9 @@ class ZoneDurationSensor(ZoneBaseEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:timer-water-outline"
 
-    def __init__(self, coordinator, entry, zone_index, zone_name):
-        super().__init__(coordinator, entry, zone_index, zone_name)
-        self._attr_unique_id = f"{entry.entry_id}_zone{zone_index}_duration"
+    def __init__(self, coordinator, entry, zone_id, zone_name):
+        super().__init__(coordinator, entry, zone_id, zone_name)
+        self._attr_unique_id = f"{entry.entry_id}_{zone_id}_duration"
         self._attr_name = f"Bewässerungsdauer {zone_name}"
 
     @property
@@ -249,9 +270,9 @@ class ZoneLastWateredSensor(ZoneBaseEntity):
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_icon = "mdi:history"
 
-    def __init__(self, coordinator, entry, zone_index, zone_name):
-        super().__init__(coordinator, entry, zone_index, zone_name)
-        self._attr_unique_id = f"{entry.entry_id}_zone{zone_index}_last_watered"
+    def __init__(self, coordinator, entry, zone_id, zone_name):
+        super().__init__(coordinator, entry, zone_id, zone_name)
+        self._attr_unique_id = f"{entry.entry_id}_{zone_id}_last_watered"
         self._attr_name = f"Zuletzt bewässert {zone_name}"
 
     @property
@@ -285,9 +306,9 @@ class ZoneRunningDeficitSensor(ZoneBaseEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:water-sync"
 
-    def __init__(self, coordinator, entry, zone_index, zone_name):
-        super().__init__(coordinator, entry, zone_index, zone_name)
-        self._attr_unique_id = f"{entry.entry_id}_zone{zone_index}_deficit_running"
+    def __init__(self, coordinator, entry, zone_id, zone_name):
+        super().__init__(coordinator, entry, zone_id, zone_name)
+        self._attr_unique_id = f"{entry.entry_id}_{zone_id}_deficit_running"
         self._attr_name = f"Defizit laufend {zone_name}"
 
     @property
