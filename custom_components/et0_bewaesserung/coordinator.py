@@ -42,6 +42,7 @@ from .const import (
     DEFAULT_ZONE_MIN_DAYS,
     DEFAULT_ZONE_MIN_DEFICIT_MM,
     DEFAULT_ZONE_FIELD_CAPACITY,
+    DEFICIT_FLOOR_RATIO,
     DEFAULT_ZONE_IRRIGATION_EFFICIENCY,
     zone_key,
     CONF_RAIN_SKIP_ENABLED,
@@ -190,7 +191,8 @@ class Et0Coordinator(DataUpdateCoordinator):
                 if old_processed == today_iso:
                     for idx, delta in old_today_zones.items():
                         self._zone_carry[idx] = max(
-                            self._zone_carry.get(idx, 0.0) - delta, -10.0
+                            self._zone_carry.get(idx, 0.0) - delta,
+                            self._deficit_floor(idx),
                         )
                 # Global: der alte Wert war eine (nie zurückgesetzte) Bilanz,
                 # nicht die kumulierte Verdunstung. Er lässt sich nicht sinnvoll
@@ -270,7 +272,11 @@ class Et0Coordinator(DataUpdateCoordinator):
                     zd = dict(zdata)
                     zd["deficit"] = round(carry, 2)
                     zd["deficit_running"] = round(
-                        max(carry + self._zone_today.get(idx, 0.0), -10.0), 2
+                        max(
+                            carry + self._zone_today.get(idx, 0.0),
+                            self._deficit_floor(idx),
+                        ),
+                        2,
                     )
                     zd["today_contribution_mm"] = round(
                         self._zone_today.get(idx, 0.0), 2
@@ -437,7 +443,7 @@ class Et0Coordinator(DataUpdateCoordinator):
                         cap,
                     )
                     neu = cap
-                self._zone_carry[idx] = max(neu, -10.0)
+                self._zone_carry[idx] = max(neu, self._deficit_floor(idx))
             _LOGGER.info(
                 "Tageswechsel %s -> %s: today (%.2f mm) nach carry übernommen "
                 "(neu: %.2f mm)",
@@ -458,6 +464,20 @@ class Et0Coordinator(DataUpdateCoordinator):
         self._zone_today = {}
         self._current_day = today_iso
         return True
+
+    def _deficit_floor(self, zone_index: int) -> float:
+        """Untergrenze des Defizits einer Zone (negativer Wert, in mm).
+
+        Leitet sich aus der zonenspezifischen Feldkapazität ab statt aus einer
+        festen Konstante: Ein tonhaltiger Boden kann mehr Reserve halten als
+        ein sandiger. Verhindert, dass ein Starkregen die Bilanz so weit ins
+        Minus zieht, dass tagelang nicht gegossen wird, obwohl der Boden real
+        längst wieder abgetrocknet ist.
+        """
+        for zone in self.get_zone_definitions():
+            if zone["index"] == zone_index:
+                return -zone["field_capacity_mm"] * DEFICIT_FLOOR_RATIO
+        return -DEFAULT_ZONE_FIELD_CAPACITY[0] * DEFICIT_FLOOR_RATIO
 
     def get_zone_definitions(self) -> list[dict]:
         """Liefert die konfigurierten, aktiven Zonen (leerer Name = deaktiviert)."""
@@ -901,7 +921,9 @@ class Et0Coordinator(DataUpdateCoordinator):
             # Basis fürs Gießen = abgeschlossene Tage. Der laufende Tag ist
             # erst am Abend vollständig und fließt beim Rollover ein.
             deficit_for_watering = carry
-            deficit_running = max(carry + self._zone_today[idx], -10.0)
+            deficit_running = max(
+                carry + self._zone_today[idx], self._deficit_floor(idx)
+            )
 
             min_interval_ok, days_since_watered = self._min_interval_status(
                 idx, zone["min_days"]
@@ -1068,7 +1090,9 @@ class Et0Coordinator(DataUpdateCoordinator):
             # das ist der Wert, auf dem die Gieß-Entscheidung beruht.
             if amount_mm is not None:
                 current = self._zone_carry.get(zone_index, 0.0)
-                self._zone_carry[zone_index] = max(current - amount_mm, -10.0)
+                self._zone_carry[zone_index] = max(
+                    current - amount_mm, self._deficit_floor(zone_index)
+                )
             else:
                 self._zone_carry[zone_index] = 0.0
             self._last_watered[zone_index] = {

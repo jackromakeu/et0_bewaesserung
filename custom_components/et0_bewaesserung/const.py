@@ -49,6 +49,16 @@ DEFAULT_ZONE_MIN_DEFICIT_MM = [1.5, 1.5, 1.5]
 # Ton 25-35 mm bei üblicher Rasendurchwurzelung. Konservativ = niedriger
 # Wert (führt zu häufigerem, kleinerem Gießen statt seltener Überwässerung).
 DEFAULT_ZONE_FIELD_CAPACITY = [20.0, 20.0, 20.0]
+# Untergrenze des Defizits, als ANTEIL der Feldkapazität. Ein negatives
+# Defizit bedeutet "Boden voller als der Zielzustand" - der Boden kann aber
+# nicht beliebig viel speichern: ist die Feldkapazität erreicht, läuft
+# zusätzliches Wasser durch die Wurzelzone hindurch ab (Perkolation) und ist
+# für die Pflanze verloren. Fachlich wäre 0 die exakte Grenze; der kleine
+# negative Puffer bildet Messungenauigkeit (Radar-Näherung,
+# Wirksamkeitsfaktor) und Restreserve tieferer Bodenschichten ab.
+# Zuvor war das eine feste Konstante von -10 mm, die unabhängig von der
+# Bodenart galt und nach Regenphasen zu spätem Gießen führen konnte.
+DEFICIT_FLOOR_RATIO = 0.15
 # Wirkungsgrad der Ausbringung: welcher Anteil kommt in der Wurzelzone an?
 # Sprinkler/Rotoren verlieren durch Windabdrift, Verdunstung und ungleiche
 # Verteilung typisch 20-30%; Tropfschläuche kaum (0.9-0.95).
