@@ -163,6 +163,14 @@ class Et0Coordinator(DataUpdateCoordinator):
             }
             self._current_day = stored.get("current_day")
 
+        update_time = self._get_config(CONF_UPDATE_TIME, DEFAULT_UPDATE_TIME)
+        # Robust gegen "HH:MM" (z.B. von einem Zeit-Picker ohne Sekunden) und
+        # "HH:MM:SS" - Sekunden fehlen einfach auf 0 ergänzen.
+        time_parts = str(update_time).split(":")
+        h = int(time_parts[0])
+        m = int(time_parts[1])
+        s = int(time_parts[2]) if len(time_parts) > 2 else 0
+
         if DIAGNOSE_MODE:
             _LOGGER.warning(
                 "ET0 Bewässerung läuft im DIAGNOSE-MODUS: stündlich zu Minute "
