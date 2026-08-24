@@ -163,6 +163,161 @@ class Et0Coordinator(DataUpdateCoordinator):
             }
             self._current_day = stored.get("current_day")
 
+        if DIAGNOSE_MODE:
+            _LOGGER.warning(
+                "ET0 Bewässerung läuft im DIAGNOSE-MODUS: stündlich zu Minute "
+                ":%02d:%02d statt nur einmal täglich um %s. Zum Zurückstellen "
+                "DIAGNOSE_MODE in const.py auf False setzen!",
+                m,
+                s,
+                update_time,
+            )
+            self._unsub_time = async_track_time_change(
+                self.hass, self._handle_scheduled_update, minute=m, second=s
+            )
+        else:
+            self._unsub_time = async_track_time_change(
+                self.hass, self._handle_scheduled_update, hour=h, minute=m, second=s
+            )
+
+        # --- Mitternachts-Rollover ---
+        # ZWINGEND nötig: Ohne diesen Timer wandert der Beitrag des
+        # abgelaufenen Tages erst beim NÄCHSTEN Berechnungslauf (23:09) nach
+        # carry - die Bewässerung um ~5 Uhr würde bis dahin mit einem einen
+        # Tag alten Defizit arbeiten. Läuft kurz nach Mitternacht, damit die
+        # Gieß-Automation am Morgen den aktuellen Wert vorfindet.
+        self._unsub_rollover = async_track_time_change(
+            self.hass, self._handle_midnight_rollover, hour=0, minute=0, second=30
+        )
+
+    @callback
+    def _handle_midnight_rollover(self, now) -> None:
+        self.hass.async_create_task(self._async_do_midnight_rollover())
+
+    async def _async_do_midnight_rollover(self) -> None:
+        """Schiebt den Tagesbeitrag nach carry und aktualisiert die Sensoren.
+
+        Bewusst OHNE Neuberechnung: Um Mitternacht steht der PV-Ertrag auf 0,
+        eine ET0-Berechnung würde hier unbrauchbare Werte liefern. Es werden
+        nur die vorhandenen Werte umgebucht.
+        """
+        if self._rollover_if_needed():
+            await self._persist()
+            # Sensoren mit dem umgebuchten Stand aktualisieren, ohne die
+            # ET0-Werte neu zu berechnen
+            if self.data:
+                new_data = dict(self.data)
+                new_data["season_et0_sum"] = round(
+                    self._season_et0_carry + self._today_et0, 2
+                )
+                new_data["today_contribution_global"] = round(self._today_et0, 2)
+                new_data["current_day"] = self._current_day
+                zones = dict(new_data.get("zones", {}))
+                for idx, zdata in zones.items():
+                    carry = self._zone_carry.get(idx, 0.0)
+                    zd = dict(zdata)
+                    zd["deficit"] = round(carry, 2)
+                    zd["deficit_running"] = round(
+                        max(
+                            carry + self._zone_today.get(idx, 0.0),
+                            self._deficit_floor(idx),
+                        ),
+                        2,
+                    )
+                    zd["today_contribution_mm"] = round(
+                        self._zone_today.get(idx, 0.0), 2
+                    )
+                    # Regen-/Frost-Skip wurden im Rollover bereits von
+                    # "morgen" (gestern ermittelt) zu "heute" übernommen -
+                    # genau diese frischen Werte gelten jetzt, nicht die
+                    # gestrigen aus dem alten Zonen-Dict.
+                    zd["rain_skip"] = self._rain_skip_today
+                    zd["frost_skip"] = self._frost_skip_today
+                    # Gieß-Freigabe mit dem neuen carry neu bewerten
+                    for zone in self.get_zone_definitions():
+                        if zone["id"] != idx:
+                            continue
+                        min_ok, days_since = self._min_interval_status(
+                            idx, zone["min_days"]
+                        )
+                        min_def_ok = carry >= zone["min_deficit_mm"]
+                        allowed = (
+                            not self._rain_skip_today
+                            and not self._frost_skip_today
+                            and min_ok
+                            and min_def_ok
+                        )
+                        zd["min_interval_ok"] = min_ok
+                        zd["days_since_watered"] = days_since
+                        zd["min_deficit_ok"] = min_def_ok
+                        zd["watering_allowed"] = allowed
+                        eff = zone["irrigation_efficiency"]
+                        gross = max(carry, 0.0) / eff if eff > 0 else max(carry, 0.0)
+                        zd["gross_mm"] = round(gross, 2)
+                        zd["duration_min"] = (
+                            round(gross / zone["drip_rate"], 1)
+                            if allowed and zone["drip_rate"] > 0
+                            else 0.0
+                        )
+                    zones[idx] = zd
+                new_data["zones"] = zones
+                self.async_set_updated_data(new_data)
+
+    def async_unload(self) -> None:
+        if self._unsub_time:
+            self._unsub_time()
+        if self._unsub_retry:
+            self._unsub_retry()
+        if self._unsub_rollover:
+            self._unsub_rollover()
+
+    @callback
+    def _handle_scheduled_update(self, now) -> None:
+        self.hass.async_create_task(self._run_scheduled_with_retry(attempt=1))
+
+    async def _run_scheduled_with_retry(self, attempt: int) -> None:
+        """Führt den geplanten Tageslauf aus und versucht es bei Fehlern erneut.
+
+        Ohne das würde z.B. ein HA-Neustart genau um 23:30 (Update, Stromausfall)
+        dazu führen, dass eine Quelle kurzzeitig 'unavailable' ist, die Berechnung
+        fehlschlägt und der ganze Tag stillschweigend ausgelassen wird.
+        """
+        await self.async_refresh()
+        if self.last_update_success:
+            _LOGGER.info(
+                "Planmäßige ET0-Berechnung erfolgreich (Versuch %s) - "
+                "ET0=%.2f mm, Niederschlagsquelle=%s",
+                attempt,
+                (self.data or {}).get("et0", -1),
+                (self.data or {}).get("precipitation_source", "?"),
+            )
+            return
+
+        if attempt >= MAX_RETRIES:
+            _LOGGER.error(
+                "ET0-Berechnung nach %s Versuchen weiterhin fehlgeschlagen - "
+                "heutiger Lauf wird ausgelassen. Ursache: %s",
+                attempt,
+                self.last_exception,
+            )
+            return
+
+        _LOGGER.warning(
+            "ET0-Berechnung fehlgeschlagen (Versuch %s/%s) - nächster Versuch in "
+            "%s Minuten. Ursache: %s",
+            attempt,
+            MAX_RETRIES,
+            RETRY_DELAY_MINUTES,
+            self.last_exception,
+        )
+
+        async def _retry(_now) -> None:
+            await self._run_scheduled_with_retry(attempt + 1)
+
+        self._unsub_retry = async_call_later(
+            self.hass, RETRY_DELAY_MINUTES * 60, _retry
+        )
+
     def _get_config(self, key: str, default=None):
         """Liest eine Einstellung des HAUPT-Eintrags.
 
