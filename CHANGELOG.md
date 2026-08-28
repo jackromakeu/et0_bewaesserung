@@ -2,6 +2,12 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.1.0]
+
+### Fixed
+- **Eine vorübergehend nicht verfügbare Eingangsquelle konnte die gesamte Integration am Laden hindern.** Schlug die erste Berechnung während der Einrichtung fehl, warf `async_config_entry_first_refresh()` ein `ConfigEntryNotReady` – die Integration wurde nicht eingerichtet und **alle** Entitäten verschwanden, statt dass nur ein Wert fehlte. Besonders ärgerlich, weil der PV-Ertragssensor nachts regelmäßig nicht verfügbar ist: Ein Neustart nach Mitternacht traf damit zuverlässig genau dieses Fenster. Die Einrichtung nutzt jetzt `async_refresh()` und lädt auch dann durch, wenn der erste Lauf scheitert; der nächste planmäßige oder manuelle Lauf versucht es erneut.
+- **Fehlende Quellen werden jetzt als `UpdateFailed` gemeldet** statt als allgemeine `HomeAssistantError`. Der Coordinator behandelt das als normalen, vorübergehenden Fehlschlag: Die zuletzt erfolgreich berechneten Werte bleiben erhalten und die Entitäten verschwinden nicht. Zuvor protokollierte Home Assistant es als „Unexpected error fetching data".
+
 ## [2.0.0] – Zonen als Config-Subentries
 
 **BREAKING CHANGE – Neueinrichtung erforderlich.** Diese Version bricht bewusst mit der bisherigen Struktur; eine automatische Migration gibt es nicht. Bestehende Entitäten, Entity-IDs und deren Historie gehen verloren. Der Umbau wurde bewusst zum Saisonende durchgeführt, wo ein Neustart nichts kostet.
