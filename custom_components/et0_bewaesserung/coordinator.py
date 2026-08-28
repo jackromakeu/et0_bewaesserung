@@ -10,7 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import async_track_time_change, async_call_later
 from homeassistant.helpers.storage import Store
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 
@@ -677,6 +677,30 @@ class Et0Coordinator(DataUpdateCoordinator):
         return temps
 
     async def _async_update_data(self) -> dict:
+        """Wrapper um die eigentliche Berechnung.
+
+        Übersetzt fehlende/ungültige Eingangsquellen in UpdateFailed statt
+        einer allgemeinen Exception. Das ist wichtig, weil der Coordinator
+        UpdateFailed als normalen, vorübergehenden Fehlschlag behandelt:
+        die zuletzt erfolgreich berechneten Werte bleiben erhalten, die
+        Entitäten verschwinden nicht, und beim nächsten Lauf wird es erneut
+        versucht. Zuvor kam eine HomeAssistantError durch, die Home
+        Assistant als "Unexpected error" protokollierte - und beim ersten
+        Lauf während der Einrichtung sogar die komplette Integration am
+        Laden hinderte.
+
+        Praktischer Anlass: Der PV-Ertragssensor ist nachts regelmäßig
+        nicht verfügbar. Ein Neustart nach Mitternacht traf damit
+        zuverlässig genau dieses Fenster.
+        """
+        try:
+            return await self._async_calculate()
+        except UpdateFailed:
+            raise
+        except HomeAssistantError as err:
+            raise UpdateFailed(str(err)) from err
+
+    async def _async_calculate(self) -> dict:
         self._fallback_used_this_run = set()
 
         # Momentaufnahme ALLER Eingangs-Entities, bevor einzeln geprüft wird -

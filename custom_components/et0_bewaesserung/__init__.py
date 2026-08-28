@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import unicodedata
 
 import voluptuous as vol
@@ -14,6 +15,8 @@ from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
 from .coordinator import Et0Coordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [Platform.SENSOR, Platform.SWITCH, Platform.BINARY_SENSOR, Platform.BUTTON]
 
@@ -43,7 +46,23 @@ def _normalize(text: str) -> str:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = Et0Coordinator(hass, entry)
     await coordinator.async_setup()
-    await coordinator.async_config_entry_first_refresh()
+    # BEWUSST async_refresh() statt async_config_entry_first_refresh():
+    # Letzteres wirft ConfigEntryNotReady, wenn der erste Lauf scheitert -
+    # dann wird die GESAMTE Integration nicht eingerichtet und alle
+    # Entitäten verschwinden. Das ist hier unangemessen, weil eine
+    # vorübergehend fehlende Eingangsquelle (z.B. der nachts nicht
+    # verfügbare PV-Ertragssensor) kein dauerhaftes Problem ist. Mit
+    # async_refresh() wird die Integration eingerichtet, die Entitäten
+    # existieren und melden sich als nicht verfügbar, bis der nächste
+    # Lauf durchkommt.
+    await coordinator.async_refresh()
+    if not coordinator.last_update_success:
+        _LOGGER.warning(
+            "Erste Berechnung beim Einrichten fehlgeschlagen (%s) - die "
+            "Integration wird trotzdem geladen, der nächste planmäßige oder "
+            "manuelle Lauf versucht es erneut",
+            coordinator.last_exception,
+        )
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
