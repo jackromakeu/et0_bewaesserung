@@ -37,6 +37,16 @@ class SeasonActiveSwitch(CoordinatorEntity[Et0Coordinator], SwitchEntity):
         )
 
     @property
+    def available(self) -> bool:
+        """Immer bedienbar.
+
+        Der Saison-Schalter ist ein rein lokaler Zustand und hängt nicht an
+        den Wetter-Eingangsquellen. Gerade wenn eine Berechnung scheitert,
+        soll man die Saison noch abschalten können.
+        """
+        return True
+
+    @property
     def is_on(self) -> bool:
         if not self.coordinator.data:
             return True

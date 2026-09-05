@@ -42,6 +42,13 @@ class RecalculateButton(CoordinatorEntity[Et0Coordinator], ButtonEntity):
             manufacturer="Lokale ET0-Integration",
         )
 
+    @property
+    def available(self) -> bool:
+        """Immer drückbar - gerade nach einem Fehlschlag will man es erneut
+        versuchen können. Wäre der Button bei fehlgeschlagenem Lauf nicht
+        verfügbar, gäbe es keinen Weg zurück außer einem Reload."""
+        return True
+
     async def async_press(self) -> None:
         await self.coordinator.async_refresh()
         if not self.coordinator.last_update_success:

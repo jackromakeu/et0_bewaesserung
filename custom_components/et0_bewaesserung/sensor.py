@@ -63,6 +63,24 @@ class Et0BaseEntity(CoordinatorEntity[Et0Coordinator], SensorEntity):
             manufacturer="Lokale ET0-Integration",
         )
 
+    @property
+    def available(self) -> bool:
+        """Verfügbar, solange überhaupt Daten vorliegen.
+
+        CoordinatorEntity reicht standardmäßig last_update_success durch -
+        ein einzelner fehlgeschlagener Lauf würde damit ALLE Entitäten auf
+        "nicht verfügbar" setzen, obwohl die zuletzt berechneten Werte noch
+        vorliegen und weiterhin gültig sind. Da unsere Berechnung nur
+        einmal täglich läuft, wäre das besonders unpassend: Ein nächtlicher
+        Ausfall des PV-Sensors würde das Dashboard bis zum nächsten
+        erfolgreichen Lauf leerräumen.
+
+        Dass ein Lauf fehlschlug, ist weiterhin sichtbar - über den Sensor
+        "Systemzustand", die Reparaturen-Ansicht und den Zeitstempel der
+        letzten Aktualisierung.
+        """
+        return self.coordinator.data is not None
+
 
 class Et0Sensor(Et0BaseEntity):
     _attr_name = "ET0 Tagesreferenz"

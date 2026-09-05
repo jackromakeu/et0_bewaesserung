@@ -48,6 +48,11 @@ class Et0BinaryBaseEntity(CoordinatorEntity[Et0Coordinator], BinarySensorEntity)
             manufacturer="Lokale ET0-Integration",
         )
 
+    @property
+    def available(self) -> bool:
+        """Verfügbar, solange Daten vorliegen - siehe Et0BaseEntity in sensor.py."""
+        return self.coordinator.data is not None
+
 
 class FrostWarningSensor(Et0BinaryBaseEntity):
     """Aktiv, sobald Frost erwartet wird und das Equipment noch nicht verstaut ist.

@@ -684,21 +684,119 @@ class Et0Coordinator(DataUpdateCoordinator):
         UpdateFailed als normalen, vorübergehenden Fehlschlag behandelt:
         die zuletzt erfolgreich berechneten Werte bleiben erhalten, die
         Entitäten verschwinden nicht, und beim nächsten Lauf wird es erneut
-        versucht. Zuvor kam eine HomeAssistantError durch, die Home
-        Assistant als "Unexpected error" protokollierte - und beim ersten
-        Lauf während der Einrichtung sogar die komplette Integration am
-        Laden hinderte.
+        versucht.
 
-        Praktischer Anlass: Der PV-Ertragssensor ist nachts regelmäßig
-        nicht verfügbar. Ein Neustart nach Mitternacht traf damit
-        zuverlässig genau dieses Fenster.
+        LÜCKE, die dieser Wrapper zusätzlich schließt: "Zuletzt erfolgreich
+        berechnete Werte" (self.data) liegen nur im Arbeitsspeicher, nicht
+        auf der Festplatte - nach einem Neustart ist self.data zwingend
+        None, bis die erste Berechnung durchläuft. Trifft ausgerechnet der
+        allererste Versuch nach dem Neustart eine nicht verfügbare Quelle
+        (der PV-Ertragssensor ist nachts regelmäßig leer), blieb self.data
+        leer und ALLE Entitäten zeigten "nicht verfügbar" - obwohl wir den
+        Bilanz-Zustand längst aus dem eigenen Store kennen. Deshalb: schlägt
+        die Berechnung fehl UND es gab seit dem Neustart noch keinen
+        erfolgreichen Lauf, wird ein Notbehelf aus dem persistierten
+        Zustand zurückgegeben statt UpdateFailed zu werfen.
         """
         try:
             return await self._async_calculate()
         except UpdateFailed:
             raise
         except HomeAssistantError as err:
+            if self.data is None:
+                _LOGGER.warning(
+                    "Erste Berechnung nach Neustart fehlgeschlagen (%s) - "
+                    "verwende den zuletzt gespeicherten Stand als Notbehelf",
+                    err,
+                )
+                fallback = self._build_fallback_result()
+                self._health = {
+                    "status": fallback["health_status"],
+                    "issues": fallback["health_issues"],
+                }
+                self._sync_repair_issues()
+                return fallback
             raise UpdateFailed(str(err)) from err
+
+    def _build_fallback_result(self) -> dict:
+        """Notbehelf-Ergebnis rein aus dem persistierten Zustand.
+
+        Enthält bewusst NICHT die tagesaktuellen Größen (ET0, Rs, Niederschlag
+        heute) - die kennen wir ohne erfolgreiche Berechnung schlicht nicht.
+        Was wir aber kennen, weil wir es selbst persistieren, ist die Bilanz
+        (carry) jeder Zone sowie Saison-/Frost-/Equipment-Status. Damit
+        bleiben zumindest die für die Gieß-Entscheidung wichtigen Sensoren
+        korrekt und die Entitäten verfügbar, statt komplett zu verschwinden.
+        """
+        zones_data: dict[str, dict] = {}
+        for zone in self.get_zone_definitions():
+            zid = zone["id"]
+            carry = self._zone_carry.get(zid, 0.0)
+            watered_info = self._last_watered.get(zid, {})
+            zones_data[zid] = {
+                "name": zone["name"],
+                "etc": None,
+                "deficit": round(carry, 2),
+                "deficit_running": round(carry, 2),
+                "today_contribution_mm": None,
+                "gross_mm": None,
+                "duration_min": 0.0,
+                "rain_skip": self._rain_skip_today,
+                "frost_skip": self._frost_skip_today,
+                "min_interval_ok": True,
+                "days_since_watered": None,
+                "min_deficit_ok": False,
+                # Bewusst KEINE Bewässerung freigeben, solange die aktuellen
+                # Eingangsdaten unbekannt sind - im Zweifel nichts gießen
+                # statt auf Basis eines Notbehelfs zu handeln.
+                "watering_allowed": False,
+                "last_watered_timestamp": watered_info.get("timestamp"),
+                "last_watered_amount_mm": watered_info.get("amount_mm"),
+            }
+
+        return {
+            "et0": None,
+            "rs": None,
+            "rs_poa": None,
+            "transposition_factor": None,
+            "rn": None,
+            "tmean": None,
+            "u2": None,
+            "deficit": None,
+            "precipitation": None,
+            "precipitation_raw": None,
+            "precipitation_source": "keine",
+            "rain_expected": self._rain_skip_today,
+            "frost_imminent": self._frost_skip_today,
+            "forecast_precip_mm": None,
+            "rain_skip_tomorrow": self._rain_skip_tomorrow,
+            "frost_skip_tomorrow": self._frost_skip_tomorrow,
+            "forecast_precip_today_mm": None,
+            "forecast_precip_tomorrow_mm": None,
+            "zones": zones_data,
+            "fallback_used": [],
+            "season_active": self._season_active,
+            "equipment_stored": self._equipment_stored,
+            "frost_warning_active": self._frost_warning_active,
+            "spring_ready_active": self._spring_ready_active,
+            "season_et0_sum": round(
+                self._season_et0_carry + self._today_et0, 2
+            ),
+            "today_contribution_global": None,
+            "current_day": self._current_day,
+            "health_status": "warnung",
+            "health_issues": [
+                {
+                    "code": "fallback_after_restart",
+                    "severity": "warnung",
+                    "message": (
+                        "Seit dem letzten Neustart noch keine erfolgreiche "
+                        "Berechnung - Anzeige basiert auf dem zuletzt "
+                        "gespeicherten Stand."
+                    ),
+                }
+            ],
+        }
 
     async def _async_calculate(self) -> dict:
         self._fallback_used_this_run = set()
