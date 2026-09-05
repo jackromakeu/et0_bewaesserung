@@ -2,6 +2,21 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.1.2]
+
+### Fixed
+- **2.1.1 löste die Verfügbarkeit nur für den Fall, dass bereits ein erfolgreicher Lauf stattgefunden hatte.** `coordinator.data` liegt nur im Arbeitsspeicher, nicht auf der Festplatte - nach jedem Neustart ist es zwingend `None`, bis die erste Berechnung durchläuft. Traf ausgerechnet der allererste Versuch nach dem Neustart eine nicht verfügbare Quelle (der PV-Ertragssensor ist nachts regelmäßig leer), blieb `data` leer und alle Entitäten zeigten weiterhin "nicht verfügbar" - der 2.1.1-Fix griff schlicht ins Leere, weil es noch keine "zuletzt erfolgreichen Werte" gab, auf die er sich hätte stützen können.
+- Schlägt die allererste Berechnung nach einem Neustart fehl, baut die Integration jetzt einen **Notbehelf aus dem persistierten Zustand**: Die Bilanz jeder Zone (`carry`) sowie Saison-/Frost-/Equipment-Status sind uns ja bereits aus dem eigenen Store bekannt, unabhängig von einer frischen Berechnung. Tagesaktuelle Größen (ET0, Solarstrahlung, heutiger Niederschlag) bleiben dabei bewusst leer - die kennen wir ohne erfolgreiche Berechnung nicht. Aus demselben Grund wird `bewaesserung_erlaubt` in diesem Zustand immer auf `false` gesetzt: im Zweifel nichts gießen, statt auf Basis eines Notbehelfs zu handeln.
+- Der Systemzustand-Sensor zeigt in diesem Fall `warnung` mit einem eigenen Hinweis, und eine entsprechende Reparaturen-Meldung wird erzeugt.
+
+## [2.1.1]
+
+### Fixed
+- **Ein fehlgeschlagener Lauf setzte weiterhin alle Entitäten auf „nicht verfügbar"**, obwohl 2.1.0 bereits das harte Abbrechen behoben hatte. Ursache: `CoordinatorEntity` reicht standardmäßig `last_update_success` als Verfügbarkeit durch. Da die Berechnung nur einmal täglich läuft, hätte ein einzelner nächtlicher Ausfall des PV-Sensors das Dashboard bis zum nächsten erfolgreichen Lauf leergeräumt. Die Entitäten gelten jetzt als verfügbar, solange überhaupt Daten vorliegen – die zuletzt berechneten Werte bleiben sichtbar.
+- **Saison-Schalter und „Jetzt neu berechnen" sind immer verfügbar.** Beide hängen nicht an den Wetter-Eingangsquellen, und gerade nach einem Fehlschlag muss man die Saison abschalten bzw. einen neuen Versuch auslösen können. Zuvor wären sie mit ausgegraut worden – ohne Weg zurück außer einem Reload.
+
+Dass ein Lauf fehlschlug, bleibt weiterhin sichtbar: über den Sensor `Systemzustand`, die Reparaturen-Ansicht und den Zeitstempel der letzten Aktualisierung.
+
 ## [2.1.0]
 
 ### Fixed
