@@ -80,6 +80,11 @@ class Et0Coordinator(DataUpdateCoordinator):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=None)
         self.entry = entry
+        # Wird in __init__.py.async_setup_entry gesetzt, BEVOR die
+        # Plattformen geladen werden - dort wird auch das Hauptgerät
+        # explizit angelegt. Zonen-Entities nutzen diese ID als
+        # via_device_id.
+        self.main_device_id: str | None = None
         self._store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry.entry_id}")
         # --- Datenmodell (seit v1.4.0, ersetzt die additive Buchung + Tages-Sperre) ---
         # Global: _season_et0_carry/_today_et0 bilden KEINE Bilanz mehr,

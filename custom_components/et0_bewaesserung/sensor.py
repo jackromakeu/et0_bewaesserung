@@ -180,10 +180,18 @@ class SeasonEt0SumSensor(Et0BaseEntity):
 class ZoneBaseEntity(Et0BaseEntity):
     """Basis für alle Zonen-Sensoren.
 
-    Jede Zone bekommt ein EIGENES Gerät, verknüpft über via_device mit dem
+    Jede Zone bekommt ein EIGENES Gerät, verknüpft über via_device_id mit dem
     Haupt-Gerät. Seit HA 2026.07 darf ein Gerät ohnehin nur noch an einem
     Subentry hängen - ein gemeinsames Gerät für alle Zonen wäre nicht mehr
     zulässig.
+
+    via_device (Identifier-Tupel) ist seit HA 2026.8 deprecated und ab
+    2027.8 entfernt: Identifier sind nur noch pro Config Entry eindeutig,
+    ein Tupel zeigt daher nicht mehr zwingend auf genau ein Gerät.
+    coordinator.main_device_id wird in __init__.py.async_setup_entry
+    gesetzt, WÄHREND das Hauptgerät dort explizit angelegt wird - noch
+    bevor die Plattformen (und damit diese Zonen-Entities) geladen werden.
+    Die ID ist beim Erstellen dieser Entity also garantiert schon gesetzt.
     """
 
     def __init__(self, coordinator, entry, zone_id: str, zone_name: str):
@@ -193,7 +201,7 @@ class ZoneBaseEntity(Et0BaseEntity):
             identifiers={(DOMAIN, f"{entry.entry_id}_{zone_id}")},
             name=f"Zone {zone_name}",
             manufacturer="Lokale ET0-Integration",
-            via_device=(DOMAIN, entry.entry_id),
+            via_device_id=coordinator.main_device_id,
         )
 
     def _zone_data(self) -> dict | None:

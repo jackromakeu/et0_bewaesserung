@@ -162,7 +162,7 @@ class ZoneBinaryBaseEntity(Et0BinaryBaseEntity):
             identifiers={(DOMAIN, f"{entry.entry_id}_{zone_id}")},
             name=f"Zone {zone_name}",
             manufacturer="Lokale ET0-Integration",
-            via_device=(DOMAIN, entry.entry_id),
+            via_device_id=coordinator.main_device_id,
         )
 
     def _zone_data(self) -> dict | None:

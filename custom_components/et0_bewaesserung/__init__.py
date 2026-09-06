@@ -12,6 +12,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN
 from .coordinator import Et0Coordinator
@@ -65,6 +66,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+
+    # Hauptgerät EXPLIZIT anlegen, statt es implizit über die erste Entity
+    # entstehen zu lassen. Grund: Die Zonen-Geräte müssen sich per
+    # via_device_id an dieses Gerät hängen (via_device ist seit HA 2026.8
+    # deprecated, siehe unten) - dafür brauchen wir die tatsächliche
+    # Registry-ID VOR dem Laden der Plattformen. Laut offizieller
+    # Dokumentation ist das der empfohlene Weg, wenn man das via-Gerät
+    # selbst erzeugt: .id direkt aus async_get_or_create() übernehmen,
+    # statt es hinterher per Lookup zu suchen (und damit ein Race-Risiko
+    # einzugehen, falls die Zonen-Entities zuerst verarbeitet würden).
+    device_registry = dr.async_get(hass)
+    main_device = device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=entry.title,
+        manufacturer="Lokale ET0-Integration",
+    )
+    coordinator.main_device_id = main_device.id
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
