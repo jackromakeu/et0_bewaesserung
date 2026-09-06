@@ -2,6 +2,14 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.1.3]
+
+### Fixed
+- **`via_device` durch `via_device_id` ersetzt.** Home Assistant 2026.8 hat `DeviceInfo["via_device"]` (Identifier-Tupel) deprecated und ab 2027.8 entfernt es ganz - Identifier sind seit der Umstellung auf Config Subentries nur noch pro Config Entry eindeutig, ein Tupel zeigt daher nicht mehr zwingend auf genau ein Gerät. Betroffen waren die beiden Zonen-Geräte, die sich darüber mit dem Haupt-Gerät verknüpften.
+- Das Hauptgerät wird jetzt **explizit** in `async_setup_entry` angelegt (statt implizit über die erste Entity), bevor die Plattformen geladen werden - die dabei zurückgegebene Registry-ID wird als `via_device_id` an die Zonen-Geräte weitergereicht. Das folgt der offiziellen Empfehlung für Integrationen, die ihr via-Gerät selbst erzeugen, und vermeidet die Race Condition, die bei einer nachträglichen ID-Suche entstehen könnte, falls Zonen-Entities vor dem Hauptgerät verarbeitet würden.
+
+Ohne diesen Fix hätte ab Home Assistant 2027.8 die Verknüpfung zwischen Zonen-Geräten und Hauptgerät nicht mehr funktioniert; in mindestens einem bekannten Fall bei einer anderen Integration führte derselbe veraltete Aufruf bereits vorher dazu, dass eine Entity gar nicht erst angelegt wurde.
+
 ## [2.1.2]
 
 ### Fixed
