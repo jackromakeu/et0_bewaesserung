@@ -2,6 +2,19 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.2.0]
+
+### Added
+- **Neue Gesundheitsprüfung: konfigurierte Messquelle dauerhaft nicht nutzbar.** Bisher gab es eine Lücke zwischen zwei Fehlerbildern. Liefert eine Quelle keinen Live-Wert, aber es existiert ein ausreichend aktueller zwischengespeicherter Wert, greift `_fallback_streaks` und meldet nach drei Läufen einen Fehler. Fällt die Quelle dagegen *komplett* aus - Entity nicht gefunden oder Cache zu alt -, wirft `_get_float_state` eine `HomeAssistantError`, die im Niederschlagszweig abgefangen wird und still auf die Wettervorhersage umschaltet. Dieser Fall landete in **keiner** Prüfung: kein Absturz, keine Meldung, nur eine dauerhaft ungenauere Bilanz. Sichtbar war er ausschließlich über das Attribut `niederschlag_quelle`.
+- Dafür gibt es jetzt `_source_degraded` (persistiert unter dem Storage-Schlüssel `source_degraded`) und die Prüfung `source_degraded_<quelle>` in `health.py`. Sie meldet ab `MAX_SOURCE_DEGRADED_STREAK` (2) Läufen in Folge eine **Warnung** - nicht einen Fehler, weil die Prognose ein funktionierender Ersatzpfad ist und die Bewässerung weiterläuft, nur ungenauer. Zwei Läufe statt drei, weil eine DWD-Störung nach einem Tag vorbei ist, eine falsch gewordene Entity-ID aber nicht.
+- Die Prüfung greift **nur**, wenn tatsächlich eine Messquelle konfiguriert ist. Ohne hinterlegten Sensor ist der Prognosebetrieb der vorgesehene Normalfall und darf nicht melden.
+- Die Meldung nennt die betroffene Entity-ID und die häufigste Ursache (geänderte Entity-ID) im Klartext. Anlass war die Umbenennung der Sensoren in DWD Precipitation 2026.9.0: bestehende Entity-IDs bleiben dort zwar erhalten, eine Neuinstallation der Integration vergibt aber die neuen IDs - und genau dann wäre der Ausfall bisher unbemerkt geblieben.
+- `degraded_sources` als neues Attribut des Systemzustands-Sensors.
+
+### Notes
+- `evaluate_health()` hat einen neuen Keyword-Parameter `degraded_sources` mit Default `None`; bestehende Aufrufe und Tests bleiben gültig.
+- Der neue Storage-Schlüssel wird beim Laden mit Default `{}` gelesen, ein Downgrade auf 2.1.x ist ohne Datenverlust möglich.
+
 ## [2.1.3]
 
 ### Fixed
