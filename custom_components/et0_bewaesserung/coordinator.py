@@ -118,6 +118,12 @@ class Et0Coordinator(DataUpdateCoordinator):
         self._last_success: str | None = None
         self._last_day_gap: int = 1
         self._fallback_streaks: dict[str, int] = {}
+        # Konfigurierte Messquellen, die in Folge komplett ausgefallen sind
+        # (kein Live-Wert UND kein brauchbarer Cache) und deshalb durch eine
+        # fachlich schlechtere Ersatzquelle vertreten werden. Bewusst getrennt
+        # von _fallback_streaks: dort ist der Messwert noch da, nur alt.
+        # Form: {"niederschlag": {"count": 2, "entity_id": ..., "ersatz": ...}}
+        self._source_degraded: dict[str, dict] = {}
         self._health: dict = {"status": "ok", "issues": []}
         self._known_issue_ids: set[str] = set()
         # Regen-/Frost-Skip: HEUTE ist der über den Rollover fixierte,
@@ -141,6 +147,7 @@ class Et0Coordinator(DataUpdateCoordinator):
             self._last_success = stored.get("last_success")
             self._last_day_gap = stored.get("last_day_gap", 1)
             self._fallback_streaks = stored.get("fallback_streaks", {})
+            self._source_degraded = stored.get("source_degraded", {})
             self._season_active = stored.get("season_active", True)
             self._equipment_stored = stored.get("equipment_stored", False)
             self._frost_warning_active = stored.get("frost_warning_active", False)
@@ -355,6 +362,7 @@ class Et0Coordinator(DataUpdateCoordinator):
                 "last_success": self._last_success,
                 "last_day_gap": self._last_day_gap,
                 "fallback_streaks": self._fallback_streaks,
+                "source_degraded": self._source_degraded,
                 "season_active": self._season_active,
                 "equipment_stored": self._equipment_stored,
                 "frost_warning_active": self._frost_warning_active,
@@ -866,6 +874,10 @@ class Et0Coordinator(DataUpdateCoordinator):
 
         precipitation_raw = 0.0
         precipitation_source = "keine"
+        # True nur, wenn eine Messquelle KONFIGURIERT ist und komplett
+        # ausfällt. Ein Treffer über den Cache zählt hier nicht - den meldet
+        # bereits die Fallback-Streak-Prüfung.
+        rain_sensor_degraded = False
         if rain_sensor:
             try:
                 # WICHTIG: kein daily_reset=True hier! Das Flag ist für
@@ -880,6 +892,7 @@ class Et0Coordinator(DataUpdateCoordinator):
                 precipitation_raw = self._get_float_state(rain_sensor)
                 precipitation_source = "gemessen"
             except HomeAssistantError as err:
+                rain_sensor_degraded = True
                 _LOGGER.warning(
                     "Regen-Messsensor %s nicht nutzbar (%s) - weiche auf die "
                     "Vorhersage aus",
@@ -1093,6 +1106,23 @@ class Et0Coordinator(DataUpdateCoordinator):
                 self._fallback_streaks.get(entity_id, 0) + 1
             )
 
+        # --- Degradierte Messquellen fortschreiben ---
+        # Gleiches Prinzip wie oben: ein einzelner Aussetzer verschwindet
+        # beim nächsten erfolgreichen Lauf wieder, ein Dauerzustand wächst.
+        # Ist keine Messquelle konfiguriert, wird der Eintrag entfernt -
+        # Prognosebetrieb ist dann der gewollte Normalfall.
+        if rain_sensor and rain_sensor_degraded:
+            self._source_degraded["niederschlag"] = {
+                "count": self._source_degraded.get("niederschlag", {}).get(
+                    "count", 0
+                )
+                + 1,
+                "entity_id": rain_sensor,
+                "ersatz": "die Wettervorhersage",
+            }
+        else:
+            self._source_degraded.pop("niederschlag", None)
+
         self._last_success = dt_util.now().isoformat()
 
         # --- Gesundheitsprüfung ---
@@ -1105,9 +1135,11 @@ class Et0Coordinator(DataUpdateCoordinator):
             calc_date=date.today(),
             fallback_streaks=self._fallback_streaks,
             season_active=self._season_active,
+            degraded_sources=self._source_degraded,
         )
         result["health_status"] = self._health["status"]
         result["health_issues"] = self._health["issues"]
+        result["degraded_sources"] = sorted(self._source_degraded)
         self._sync_repair_issues()
 
         await self._persist()

@@ -26,6 +26,13 @@ _SEVERITY_ORDER = {OK: 0, WARNUNG: 1, FEHLER: 2}
 MAX_HOURS_WITHOUT_CALC = 26
 # Wie viele Tage in Folge darf eine Quelle nur über den Fallback laufen?
 MAX_FALLBACK_STREAK = 3
+# Wie viele Läufe in Folge darf eine KONFIGURIERTE Messquelle komplett
+# ausfallen, bevor gemeldet wird? Anders als beim Fallback oben steht hier
+# kein zwischengespeicherter Messwert mehr zur Verfügung - es wird auf eine
+# fachlich schlechtere Ersatzquelle umgeschaltet (z.B. Prognose statt
+# Radarmessung). Zwei Läufe, damit eine einzelne DWD-Störung nicht meldet,
+# eine falsch gewordene Entity-ID aber schnell auffällt.
+MAX_SOURCE_DEGRADED_STREAK = 2
 # Physikalische ET0-Obergrenze für Mitteleuropa (mm/Tag). Werte darüber
 # bedeuten praktisch immer kaputte Eingangsdaten, nicht echtes Wetter.
 ET0_ABSOLUTE_MAX = 12.0
@@ -57,6 +64,7 @@ def evaluate_health(
     calc_date: date,
     fallback_streaks: dict[str, int],
     season_active: bool,
+    degraded_sources: dict[str, dict] | None = None,
 ) -> dict:
     """Bewertet den Systemzustand und liefert Status plus Befundliste.
 
@@ -147,6 +155,32 @@ def evaluate_health(
                     ),
                 }
             )
+
+    # --- 5. Konfigurierte Messquelle dauerhaft nicht nutzbar ---
+    # Greift NUR, wenn der Nutzer eine Messquelle hinterlegt hat und diese
+    # nicht liefert. Ist gar keine konfiguriert, ist die Ersatzquelle der
+    # vorgesehene Normalbetrieb und darf nicht gemeldet werden - deshalb
+    # trägt der Coordinator hier ausschliesslich konfigurierte Quellen ein.
+    for key, info in sorted((degraded_sources or {}).items()):
+        streak = int(info.get("count", 0))
+        if streak < MAX_SOURCE_DEGRADED_STREAK:
+            continue
+        issues.append(
+            {
+                # Code je Quelle, damit sich mehrere Befunde in der
+                # Reparaturen-Ansicht nicht gegenseitig überschreiben.
+                "code": f"source_degraded_{key}",
+                "severity": WARNUNG,
+                "message": (
+                    f"Die konfigurierte Messquelle für {key} "
+                    f"({info.get('entity_id', 'unbekannt')}) liefert seit "
+                    f"{streak} Läufen keinen Wert. Es wird ersatzweise "
+                    f"{info.get('ersatz', 'eine Ersatzquelle')} verwendet - "
+                    f"die Berechnung läuft weiter, aber ungenauer. "
+                    f"Häufigste Ursache: die Entity-ID hat sich geändert."
+                ),
+            }
+        )
 
     status = OK
     for issue in issues:
