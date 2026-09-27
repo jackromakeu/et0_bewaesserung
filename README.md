@@ -180,7 +180,9 @@ Einstellungen → Geräte & Dienste → „Integration hinzufügen" → „ET0 B
 | `frost_lookahead_days` / `frost_threshold_c` | Frost-Vorwarnung (Equipment-Abbau) |
 | `spring_earliest_date` | frühestes Frühjahrsdatum (`MM-TT`) |
 
-**Schritt 2 – Zonen** (bis zu 3, Name leer = deaktiviert): `name`, `kc`, `drip_rate`, `min_days`, `min_deficit_mm`, `field_capacity_mm`, `irrigation_efficiency`.
+**Schritt 2 – Zonen** (beliebig viele, je Zone ein eigenes Gerät über „Zone hinzufügen"): `name`, `kc`, `drip_rate`, `field_capacity_mm`, `irrigation_efficiency`.
+
+Das Formular enthält nur **Eigenschaften der gebauten Zone**. `min_deficit_mm` und `min_days` sind seit v2.2.0 keine Formularfelder mehr, sondern `number`-Entitäten am Zonengerät (siehe [Entitäten](#entitäten)) – sie sind Policy, die man im Betrieb nachzieht, und eine Änderung im Config Flow wäre still: Recorder und Logbuch sehen sie nicht. Bestehende Zonen behalten ihre Werte; sie wandern beim ersten Laden aus dem Subentry in den Betriebszustand.
 
 ## Entitäten
 
@@ -195,6 +197,7 @@ Alle Entitäten hängen an einem gemeinsamen Gerät „ET0 Bewässerung".
 | Niederschlag angerechnet | sensor | Für heute in die Bilanz eingeflossene Regenmenge, mit Quelle im Klartext |
 | ET0 Saisonsumme | sensor | Kumulierte Verdunstung seit Saisonstart (Statistik, keine Bilanz) |
 | Systemzustand | sensor | `ok`/`warnung`/`fehler` - automatische Fehlererkennung, siehe unten |
+| Zonenentscheidungen | sensor | Anzahl der Zonen, die beim nächsten Lauf gegossen werden; Attribut `zonen` enthält je Zone Entscheidung, Begründung im Klartext und Kennzahlen |
 | Gartensaison aktiv | switch | Aus = komplette Logik pausiert, Bilanz wird zurückgesetzt |
 | Jetzt neu berechnen | button | Manuelle Neuberechnung, seit v1.4.0 jederzeit unschädlich |
 | Regen erwartet (Skip aktiv heute) | binary_sensor | Regen-Skip für heute aktiv |
@@ -213,8 +216,12 @@ Alle Entitäten hängen an einem gemeinsamen Gerät „ET0 Bewässerung".
 | Zuletzt bewässert `<Zone>` | Zeitstempel, Attribut `menge_mm` |
 | Mindestabstand erfüllt `<Zone>` | binary_sensor, für die Fehlersuche |
 | Mindestdefizit erfüllt `<Zone>` | binary_sensor, für die Fehlersuche |
+| Mindestdefizit `<Zone>` | **number** – ab welchem Defizit (mm) gegossen wird. Höher = seltener, aber durchdringender |
+| Mindestabstand `<Zone>` | **number** – Mindestzahl an Tagen zwischen zwei Läufen derselben Zone |
 
-**Wichtigstes Attribut:** `bewaesserung_erlaubt` an `Bewässerungsdauer <Zone>` fasst Regen-Skip, Frost-Skip, Mindestabstand und Mindestdefizit zu einem Flag zusammen – Automationen brauchen nur diese eine Bedingung.
+**Wichtigstes Attribut:** `bewaesserung_erlaubt` an `Bewässerungsdauer <Zone>` fasst Saison, Regen-Skip, Frost-Skip, Mindestabstand und Mindestdefizit zu einem Flag zusammen – Automationen brauchen nur diese eine Bedingung. Seit v2.2.0 ist die **Saison** darin enthalten; vorher hing diese Absicherung allein an den Bedingungen der Automation.
+
+**Für Anzeige und Benachrichtigung:** `sensor.et0_bewaesserung_zonenentscheidungen` liefert dieselbe Entscheidung samt Begründung im Klartext. Der Text in `grund` ist so formuliert, dass er unverändert in eine Push-Nachricht oder eine TTS-Ansage passt – die Begründung wird einmal erzeugt und nicht pro Ausgabekanal neu.
 
 ## Services
 
