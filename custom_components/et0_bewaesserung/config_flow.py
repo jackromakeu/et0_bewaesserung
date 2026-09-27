@@ -32,14 +32,11 @@ from .const import (
     CONF_ZONE_NAME,
     CONF_ZONE_KC,
     CONF_ZONE_DRIP_RATE,
-    CONF_ZONE_MIN_DAYS,
-    CONF_ZONE_MIN_DEFICIT_MM,
     CONF_ZONE_FIELD_CAPACITY,
     CONF_ZONE_IRRIGATION_EFFICIENCY,
+    ZONE_RUNTIME_KEYS,
     DEFAULT_ZONE_KC,
     DEFAULT_ZONE_DRIP_RATE,
-    DEFAULT_ZONE_MIN_DAYS,
-    DEFAULT_ZONE_MIN_DEFICIT_MM,
     DEFAULT_ZONE_FIELD_CAPACITY,
     DEFAULT_ZONE_IRRIGATION_EFFICIENCY,
     CONF_RAIN_SKIP_ENABLED,
@@ -219,7 +216,16 @@ async def _validate_entities(hass: HomeAssistant, user_input: dict) -> dict[str,
 
 
 def _build_zone_schema(defaults: dict) -> vol.Schema:
-    """Schema für EINE Zone - sieben Felder statt einer Sammelliste."""
+    """Schema für EINE Zone - die Anlageneigenschaften der Zone.
+
+    Mindestdefizit und Mindestabstand stehen seit v2.2.0 bewusst NICHT mehr
+    hier, sondern als number-Entities am Zonengerät (siehe number.py). Sie
+    sind Policy, die man im Betrieb nachzieht, nicht eine Eigenschaft der
+    gebauten Zone wie Kc, Tropfrate, Feldkapazität oder Wirkungsgrad. Hätten
+    sie beide Stellen, gäbe es zwei bedienbare Wahrheiten für einen Wert -
+    und die Änderung im Formular wäre still, während die an der Entity im
+    Recorder auftaucht.
+    """
     return vol.Schema(
         {
             vol.Required(
@@ -237,20 +243,6 @@ def _build_zone_schema(defaults: dict) -> vol.Schema:
                 default=defaults.get(CONF_ZONE_DRIP_RATE, DEFAULT_ZONE_DRIP_RATE),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0.01, max=5.0, step=0.01, mode="box")
-            ),
-            vol.Required(
-                CONF_ZONE_MIN_DAYS,
-                default=defaults.get(CONF_ZONE_MIN_DAYS, DEFAULT_ZONE_MIN_DAYS),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=1, max=14, step=1, mode="box")
-            ),
-            vol.Required(
-                CONF_ZONE_MIN_DEFICIT_MM,
-                default=defaults.get(
-                    CONF_ZONE_MIN_DEFICIT_MM, DEFAULT_ZONE_MIN_DEFICIT_MM
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=0, max=20, step=0.5, mode="box")
             ),
             vol.Required(
                 CONF_ZONE_FIELD_CAPACITY,
@@ -297,6 +289,15 @@ class ZoneSubentryFlowHandler(ConfigSubentryFlow):
                 errors[CONF_ZONE_NAME] = "zone_name_required"
             else:
                 user_input[CONF_ZONE_NAME] = name
+                # Mindestdefizit und Mindestabstand stehen nicht mehr im
+                # Formular, liegen aber als Startwert im Subentry. Ohne dieses
+                # Durchschreiben würden sie beim Bearbeiten einer Zone aus
+                # den Daten fallen - und eine Zone, für die noch kein
+                # Betriebswert gesetzt wurde, fiele still auf den
+                # Integrations-Default zurück.
+                for key in ZONE_RUNTIME_KEYS:
+                    if key in defaults and key not in user_input:
+                        user_input[key] = defaults[key]
                 if is_new:
                     return self.async_create_entry(title=name, data=user_input)
                 return self.async_update_and_abort(

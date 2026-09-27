@@ -32,6 +32,7 @@ async def async_setup_entry(
             SeasonEt0SumSensor(coordinator, entry),
             HealthSensor(coordinator, entry),
             PrecipitationSensor(coordinator, entry),
+            ZoneDecisionsSensor(coordinator, entry),
         ]
     )
 
@@ -375,6 +376,55 @@ class HealthSensor(Et0BaseEntity):
             "anzahl_befunde": len(issues),
             "befunde": [i["message"] for i in issues] or "keine",
             "codes": [i["code"] for i in issues] or "keine",
+        }
+
+
+class ZoneDecisionsSensor(Et0BaseEntity):
+    """Gieß-Entscheidung samt Begründung für alle Zonen in EINER Entity.
+
+    Der Zustand ist die Anzahl der Zonen, die beim nächsten Dispatcher-Lauf
+    gegossen werden - bewusst numerisch, damit Lovelace Conditional Cards
+    damit arbeiten können (`condition: template` gibt es dort nicht).
+
+    Die Zonen stehen als Dict im Attribut `zonen`, nicht als eigene Entities
+    je Zone. Grund: Das Dashboard iteriert darüber und ist damit bei einer
+    neuen Zone ohne Änderung korrekt - dasselbe Muster wie
+    `sensor.raumklima_zonenentscheidungen`. Wer eine einzelne Zone in einer
+    Automation braucht, kommt über `state_attr(..., 'zonen').zone_id` heran.
+
+    Die Kette selbst steht in entscheidung.py, nicht hier: Diese Entity ist
+    reine Anzeige, die Bewertung passiert im Coordinator.
+    """
+
+    _attr_name = "Zonenentscheidungen"
+    _attr_icon = "mdi:clipboard-water-outline"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_zone_decisions"
+
+    def _decisions(self) -> dict:
+        if not self.coordinator.data:
+            return {}
+        return self.coordinator.data.get("zone_decisions") or {}
+
+    @property
+    def native_value(self):
+        decisions = self._decisions()
+        if not decisions:
+            return None
+        return decisions.get("laeuft_anzahl", 0)
+
+    @property
+    def extra_state_attributes(self):
+        decisions = self._decisions()
+        if not decisions:
+            return {}
+        return {
+            "stand": decisions.get("stand"),
+            "zonen_gesamt": len(decisions.get("zonen") or {}),
+            "zonen": decisions.get("zonen") or {},
         }
 
 

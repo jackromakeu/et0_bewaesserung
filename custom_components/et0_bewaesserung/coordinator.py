@@ -50,6 +50,7 @@ from .const import (
     DEFAULT_ZONE_FIELD_CAPACITY,
     DEFICIT_FLOOR_RATIO,
     DEFAULT_ZONE_IRRIGATION_EFFICIENCY,
+    ZONE_RUNTIME_KEYS,
     CONF_RAIN_SKIP_ENABLED,
     CONF_RAIN_SKIP_THRESHOLD,
     DEFAULT_RAIN_SKIP_ENABLED,
@@ -69,6 +70,7 @@ from .const import (
     DEFAULT_SPRING_EARLIEST_DATE,
 )
 from .et0 import calculate_et0, calculate_etc
+from .entscheidung import entscheide_zonen
 from .health import evaluate_health
 
 _LOGGER = logging.getLogger(__name__)
@@ -104,6 +106,14 @@ class Et0Coordinator(DataUpdateCoordinator):
         self._today_et0 = 0.0
         self._zone_carry: dict[str, float] = {}
         self._zone_today: dict[str, float] = {}
+        # Betriebswerte je Zone, die über number-Entities verstellt werden
+        # (Mindestdefizit, Mindestabstand). Form: {zone_id: {key: wert}}.
+        # Gehört dem Coordinator und nicht der Entity, weil die Werte schon
+        # beim ersten Lauf gebraucht werden - der läuft in
+        # async_setup_entry, BEVOR die Plattformen geladen sind. Dasselbe
+        # Muster wie beim Saison-Schalter: der Zustand liegt im Store, die
+        # Entity ist nur die Bedienoberfläche dafür.
+        self._zone_runtime: dict[str, dict[str, float]] = {}
         self._current_day: str | None = None
         self._last_known_values: dict[str, dict] = {}
         self._fallback_used_this_run: set[str] = set()
@@ -172,6 +182,10 @@ class Et0Coordinator(DataUpdateCoordinator):
             }
             self._zone_today = {
                 str(k): v for k, v in stored.get("zone_today", {}).items()
+            }
+            self._zone_runtime = {
+                str(k): dict(v)
+                for k, v in stored.get("zone_runtime", {}).items()
             }
             self._current_day = stored.get("current_day")
 
@@ -262,7 +276,11 @@ class Et0Coordinator(DataUpdateCoordinator):
                         )
                         min_def_ok = carry >= zone["min_deficit_mm"]
                         allowed = (
-                            not self._rain_skip_today
+                            # Siehe _async_calculate: die Saison gehört in
+                            # diese Freigabe, nicht nur in die Bedingungen
+                            # der Automation.
+                            self._season_active
+                            and not self._rain_skip_today
                             and not self._frost_skip_today
                             and min_ok
                             and min_def_ok
@@ -281,7 +299,7 @@ class Et0Coordinator(DataUpdateCoordinator):
                         )
                     zones[idx] = zd
                 new_data["zones"] = zones
-                self.async_set_updated_data(new_data)
+                self.async_set_updated_data(self._apply_zone_decisions(new_data))
 
     def async_unload(self) -> None:
         if self._unsub_time:
@@ -356,6 +374,7 @@ class Et0Coordinator(DataUpdateCoordinator):
                 "today_et0": self._today_et0,
                 "zone_carry": self._zone_carry,
                 "zone_today": self._zone_today,
+                "zone_runtime": self._zone_runtime,
                 "current_day": self._current_day,
                 "last_known_values": self._last_known_values,
                 "last_watered": self._last_watered,
@@ -460,6 +479,12 @@ class Et0Coordinator(DataUpdateCoordinator):
         stabiler Schlüssel für Bilanz, Speicherung und Entity-IDs. Anders
         als beim früheren indexbasierten Ansatz bleibt die Zuordnung auch
         dann korrekt, wenn Zonen zwischendurch entfernt werden.
+
+        Das ist die EINZIGE Stelle, an der Zonenwerte aufgelöst werden -
+        inklusive der über number-Entities verstellbaren Betriebswerte
+        (Mindestdefizit, Mindestabstand). Alles andere im Coordinator liest
+        hier und rechnet nicht selbst nach; sonst gäbe es wieder zwei
+        Wahrheiten für denselben Wert.
         """
         zones = []
         for subentry_id, subentry in self.entry.subentries.items():
@@ -469,6 +494,7 @@ class Et0Coordinator(DataUpdateCoordinator):
             name = (data.get(CONF_ZONE_NAME) or "").strip()
             if not name:
                 continue
+            runtime = self._zone_runtime.get(subentry_id, {})
             zones.append(
                 {
                     "id": subentry_id,
@@ -477,11 +503,23 @@ class Et0Coordinator(DataUpdateCoordinator):
                     "drip_rate": float(
                         data.get(CONF_ZONE_DRIP_RATE, DEFAULT_ZONE_DRIP_RATE)
                     ),
+                    # Betriebswert, falls gesetzt - sonst der Startwert aus
+                    # dem Subentry (Zonen aus der Zeit vor v2.2.0) und
+                    # zuletzt der Integrations-Default.
                     "min_days": int(
-                        data.get(CONF_ZONE_MIN_DAYS, DEFAULT_ZONE_MIN_DAYS)
+                        runtime.get(
+                            CONF_ZONE_MIN_DAYS,
+                            data.get(CONF_ZONE_MIN_DAYS, DEFAULT_ZONE_MIN_DAYS),
+                        )
                     ),
                     "min_deficit_mm": float(
-                        data.get(CONF_ZONE_MIN_DEFICIT_MM, DEFAULT_ZONE_MIN_DEFICIT_MM)
+                        runtime.get(
+                            CONF_ZONE_MIN_DEFICIT_MM,
+                            data.get(
+                                CONF_ZONE_MIN_DEFICIT_MM,
+                                DEFAULT_ZONE_MIN_DEFICIT_MM,
+                            ),
+                        )
                     ),
                     "field_capacity_mm": float(
                         data.get(CONF_ZONE_FIELD_CAPACITY, DEFAULT_ZONE_FIELD_CAPACITY)
@@ -495,6 +533,85 @@ class Et0Coordinator(DataUpdateCoordinator):
                 }
             )
         return zones
+
+    async def async_set_zone_runtime(
+        self, zone_id: str, key: str, value: float
+    ) -> None:
+        """Setzt einen über eine number-Entity verstellbaren Betriebswert.
+
+        Gültige Schlüssel stehen in ZONE_RUNTIME_KEYS. Nach dem Setzen wird
+        sofort neu bewertet, damit Defizit-Freigabe und Entscheidung im
+        Dashboard unmittelbar zur neuen Schwelle passen - eine Schwelle, die
+        erst am nächsten Abend wirkt, wäre beim Justieren nicht beurteilbar.
+        """
+        if key not in ZONE_RUNTIME_KEYS:
+            raise ValueError(f"Unbekannter Betriebswert: {key}")
+        self._zone_runtime.setdefault(zone_id, {})[key] = float(value)
+        await self._persist()
+        await self.async_request_refresh()
+
+    def get_zone_runtime(self, zone_id: str, key: str):
+        """Aktuell aufgelöster Betriebswert einer Zone (für die number-Entity)."""
+        for zone in self.get_zone_definitions():
+            if zone["id"] != zone_id:
+                continue
+            return {
+                CONF_ZONE_MIN_DEFICIT_MM: zone["min_deficit_mm"],
+                CONF_ZONE_MIN_DAYS: zone["min_days"],
+            }.get(key)
+        return None
+
+    def _zonen_config(self) -> dict[str, dict]:
+        """Zonenwerte in der Form, die entscheidung.entscheide_zonen erwartet."""
+        return {
+            zone["id"]: {
+                "name": zone["name"],
+                "min_days": zone["min_days"],
+                "min_deficit_mm": zone["min_deficit_mm"],
+            }
+            for zone in self.get_zone_definitions()
+        }
+
+    def _letzte_bewaesserung(self) -> dict[str, dict]:
+        """Letzte Bewässerung je Zone mit GEPARSTEM Zeitstempel.
+
+        Das Parsen passiert hier, damit entscheidung.py ohne
+        Home-Assistant-Abhängigkeiten auskommt.
+        """
+        result: dict[str, dict] = {}
+        now = dt_util.now()
+        for zone_id, info in self._last_watered.items():
+            moment = dt_util.parse_datetime(info.get("timestamp") or "")
+            result[zone_id] = {
+                "timestamp": (
+                    moment.astimezone(now.tzinfo) if moment is not None else None
+                ),
+                "amount_mm": info.get("amount_mm"),
+            }
+        return result
+
+    def _apply_zone_decisions(self, data: dict) -> dict:
+        """Ergänzt ein Ergebnis-Dict um die Zonenentscheidungen.
+
+        Wird aus allen drei Wegen aufgerufen, auf denen sich coordinator.data
+        ändern kann - Tageslauf, Mitternachts-Rollover und Notbehelf -, damit
+        die Prioritätskette an genau einer Stelle steht und alle drei Wege
+        garantiert dieselbe Aussage liefern.
+        """
+        data["zone_decisions"] = entscheide_zonen(
+            now=dt_util.now(),
+            season_active=bool(data.get("season_active", True)),
+            equipment_stored=bool(data.get("equipment_stored", False)),
+            # et0 ist im Notbehelf None - dann ist jede Aussage über heute
+            # geraten, und die Zone bekommt UNBEKANNT statt einer Begründung,
+            # die plausibel aussieht und falsch ist.
+            berechnung_fehlt=data.get("et0") is None,
+            regen_prognose_mm=data.get("forecast_precip_today_mm"),
+            zonen=data.get("zones") or {},
+            zonen_config=self._zonen_config(),
+            letzte_bewaesserung=self._letzte_bewaesserung(),
+        )
+        return data
 
     def _min_interval_status(self, zone_id: str, min_days: int) -> tuple[bool, int | None]:
         """Prüft den Mindestabstand seit der letzten Bewässerung dieser Zone.
@@ -767,7 +884,7 @@ class Et0Coordinator(DataUpdateCoordinator):
                 "last_watered_amount_mm": watered_info.get("amount_mm"),
             }
 
-        return {
+        return self._apply_zone_decisions({
             "et0": None,
             "rs": None,
             "rs_poa": None,
@@ -809,7 +926,7 @@ class Et0Coordinator(DataUpdateCoordinator):
                     ),
                 }
             ],
-        }
+        })
 
     async def _async_calculate(self) -> dict:
         self._fallback_used_this_run = set()
@@ -1029,8 +1146,18 @@ class Et0Coordinator(DataUpdateCoordinator):
                 idx, zone["min_days"]
             )
             min_deficit_ok = deficit_for_watering >= zone["min_deficit_mm"]
+            # Die Saison gehört in DIESE Freigabe, nicht nur in die
+            # Bedingungen der Dispatcher-Automation. Bisher fehlte sie hier,
+            # und die Absicherung hing allein daran, dass
+            # async_set_season_active die Bilanz auf 0 setzt - nur läuft die
+            # Berechnung während der Pause weiter, der Rollover bucht jeden
+            # Tag nach carry, und nach wenigen Tagen ist das Mindestdefizit
+            # wieder erreicht. Ab dann meldete die Integration bei
+            # abgeschalteter Saison eine Gieß-Freigabe, und ein
+            # automation.trigger ohne skip_condition hätte sie befolgt.
             watering_allowed = (
-                not rain_expected
+                self._season_active
+                and not rain_expected
                 and not frost_imminent
                 and min_interval_ok
                 and min_deficit_ok
@@ -1143,7 +1270,7 @@ class Et0Coordinator(DataUpdateCoordinator):
         self._sync_repair_issues()
 
         await self._persist()
-        return result
+        return self._apply_zone_decisions(result)
 
     def _sync_repair_issues(self) -> None:
         """Spiegelt die Befunde in die HA-Reparaturen-Ansicht.
@@ -1238,6 +1365,30 @@ class Et0Coordinator(DataUpdateCoordinator):
         self._zone_carry = {k: 0.0 for k in self._zone_carry}
         self._zone_today = {}
         await self._persist()
+        # Saisonwechsel sofort in die angezeigten Daten übernehmen, statt nur
+        # auf die Neuberechnung zu warten: async_request_refresh ist
+        # entprellt und kann scheitern (nachts ist der PV-Ertragssensor
+        # regelmäßig leer). Ohne das würde das Dashboard nach dem Abschalten
+        # der Saison weiter "läuft" behaupten - genau die Art Aussage, die
+        # das Vertrauen in die Anzeige kostet.
+        if self.data:
+            patched = dict(self.data)
+            patched["season_active"] = active
+            # async_set_equipment_stored setzt diese Flags und ruft dann
+            # hierher durch - deshalb alle vier aus dem Coordinator-Zustand
+            # übernehmen, nicht nur die Saison.
+            patched["equipment_stored"] = self._equipment_stored
+            patched["frost_warning_active"] = self._frost_warning_active
+            patched["spring_ready_active"] = self._spring_ready_active
+            zones = {}
+            for zone_id, zone_data in (patched.get("zones") or {}).items():
+                zone_patched = dict(zone_data)
+                if not active:
+                    zone_patched["watering_allowed"] = False
+                    zone_patched["duration_min"] = 0.0
+                zones[zone_id] = zone_patched
+            patched["zones"] = zones
+            self.async_set_updated_data(self._apply_zone_decisions(patched))
         await self.async_request_refresh()
 
     async def async_set_equipment_stored(self, stored: bool) -> None:

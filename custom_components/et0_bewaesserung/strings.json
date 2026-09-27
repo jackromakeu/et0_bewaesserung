@@ -79,13 +79,11 @@
       "step": {
         "user": {
           "title": "Zone hinzufügen",
-          "description": "Jede Zone bekommt ein eigenes Gerät mit eigenen Sensoren.",
+          "description": "Jede Zone bekommt ein eigenes Gerät mit eigenen Sensoren. Mindestdefizit und Mindestabstand stehen nicht mehr hier, sondern als Schieberegler am Zonengerät (und im Bewässerungs-Dashboard unter Einstellungen) – dort ist jede Änderung im Verlauf nachvollziehbar. In diesem Formular stehen nur die Eigenschaften der gebauten Zone.",
           "data": {
             "name": "Name der Zone (z.B. Rasen, Sträucher)",
             "kc": "Kc-Faktor (Rasen 0,70-0,85 · Beete 0,90-1,10 · Sträucher 0,40-0,55)",
             "drip_rate": "Tropfrate (mm/min)",
-            "min_days": "Mindestabstand zwischen Bewässerungen (Tage)",
-            "min_deficit_mm": "Mindestdefizit, ab dem gegossen wird (mm)",
             "field_capacity_mm": "Feldkapazität der Wurzelzone (mm)",
             "irrigation_efficiency": "Wirkungsgrad Ausbringung (0,75 = 25 % Verlust)"
           }
@@ -96,11 +94,10 @@
             "name": "Name der Zone (z.B. Rasen, Sträucher)",
             "kc": "Kc-Faktor (Rasen 0,70-0,85 · Beete 0,90-1,10 · Sträucher 0,40-0,55)",
             "drip_rate": "Tropfrate (mm/min)",
-            "min_days": "Mindestabstand zwischen Bewässerungen (Tage)",
-            "min_deficit_mm": "Mindestdefizit, ab dem gegossen wird (mm)",
             "field_capacity_mm": "Feldkapazität der Wurzelzone (mm)",
             "irrigation_efficiency": "Wirkungsgrad Ausbringung (0,75 = 25 % Verlust)"
-          }
+          },
+          "description": "Mindestdefizit und Mindestabstand stehen nicht mehr hier, sondern als Schieberegler am Zonengerät (und im Bewässerungs-Dashboard unter Einstellungen) – dort ist jede Änderung im Verlauf nachvollziehbar. In diesem Formular stehen nur die Eigenschaften der gebauten Zone."
         }
       },
       "error": {

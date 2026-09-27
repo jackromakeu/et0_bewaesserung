@@ -60,6 +60,21 @@ DEFAULT_ZONE_IRRIGATION_EFFICIENCY = 0.75
 # Untergrenze des Defizits als Anteil der Feldkapazität (siehe README)
 DEFICIT_FLOOR_RATIO = 0.15
 
+# --- Betriebswerte je Zone (seit v2.2.0 als number-Entities) ---
+# Mindestdefizit und Mindestabstand sind Policy, keine Anlageneigenschaft:
+# Kc, Tropfrate, Feldkapazität und Wirkungsgrad beschreiben die Zone, wie sie
+# gebaut ist - diese beiden dagegen sind Stellschrauben, die man im Betrieb
+# nachzieht. Im Config Flow ist so eine Änderung still: Recorder und Logbuch
+# sehen sie nicht, und drei Wochen später ist nicht mehr nachvollziehbar,
+# warum der Rasen seltener läuft. Als number-Entity ist sie aufgezeichnet und
+# lässt sich im Dashboard justieren.
+#
+# Die Werte STEHEN WEITERHIN im Subentry - dort als Startwert, aus dem der
+# Betriebswert beim ersten Laden einer Zone erzeugt wird (siehe
+# coordinator.get_zone_definitions). Im Zonen-Formular werden sie nicht mehr
+# angezeigt, damit es nie zwei bedienbare Stellen für denselben Wert gibt.
+ZONE_RUNTIME_KEYS = (CONF_ZONE_MIN_DEFICIT_MM, CONF_ZONE_MIN_DAYS)
+
 
 # --- Vorausschauender Regen-Skip ---
 CONF_RAIN_SKIP_ENABLED = "rain_skip_enabled"
