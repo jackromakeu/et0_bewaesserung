@@ -9,6 +9,7 @@ from homeassistant.config_entries import ConfigSubentryFlow, SubentryFlowResult
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
 
+from .saison import spring_window_valid
 from .const import (
     DOMAIN,
     CONF_TEMP_MAX_ENTITY,
@@ -51,7 +52,9 @@ from .const import (
     CONF_FROST_THRESHOLD,
     DEFAULT_FROST_THRESHOLD,
     CONF_SPRING_EARLIEST_DATE,
+    CONF_SPRING_LATEST_DATE,
     DEFAULT_SPRING_EARLIEST_DATE,
+    DEFAULT_SPRING_LATEST_DATE,
 )
 
 REQUIRED_ENTITY_FIELDS = (
@@ -184,6 +187,12 @@ def _build_general_schema(hass: HomeAssistant, defaults: dict) -> vol.Schema:
                     CONF_SPRING_EARLIEST_DATE, DEFAULT_SPRING_EARLIEST_DATE
                 ),
             ): str,
+            vol.Required(
+                CONF_SPRING_LATEST_DATE,
+                default=defaults.get(
+                    CONF_SPRING_LATEST_DATE, DEFAULT_SPRING_LATEST_DATE
+                ),
+            ): str,
         }
     )
 
@@ -211,6 +220,14 @@ async def _validate_entities(hass: HomeAssistant, user_input: dict) -> dict[str,
     weather_entity = user_input.get(CONF_WEATHER_ENTITY)
     if weather_entity and hass.states.get(weather_entity) is None:
         errors[CONF_WEATHER_ENTITY] = "entity_not_found"
+
+    # Frühjahrsfenster: lesbar und Anfang vor Ende. Ein ungültiges Fenster
+    # würde im Betrieb still "nie Frühjahr" bedeuten - besser hier ablehnen.
+    if not spring_window_valid(
+        user_input.get(CONF_SPRING_EARLIEST_DATE, DEFAULT_SPRING_EARLIEST_DATE),
+        user_input.get(CONF_SPRING_LATEST_DATE, DEFAULT_SPRING_LATEST_DATE),
+    ):
+        errors[CONF_SPRING_LATEST_DATE] = "spring_window_invalid"
 
     return errors
 

@@ -116,3 +116,7 @@ DEFAULT_FROST_THRESHOLD = 1.0  # °C - leicht über 0 für Vorwarnzeit
 # --- Frühjahrs-Erkennung (Equipment-Wiederaufbau) ---
 CONF_SPRING_EARLIEST_DATE = "spring_earliest_date"  # Format "MM-DD"
 DEFAULT_SPRING_EARLIEST_DATE = "03-01"
+# Ende des Fensters: Ohne Ende galt bis 2.2.0 jedes Datum ab 1. März bis
+# Silvester als Frühjahr - die Erinnerung kam im Herbst (siehe saison.py).
+CONF_SPRING_LATEST_DATE = "spring_latest_date"  # Format "MM-DD"
+DEFAULT_SPRING_LATEST_DATE = "06-30"

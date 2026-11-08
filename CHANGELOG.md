@@ -2,6 +2,20 @@
 
 Alle nennenswerten Änderungen dieser Integration. Format lose angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.2.1]
+
+### Fixed
+- **„Frühjahr bereit" meldete sich im Herbst.** Das Datum wurde als Text verglichen, ohne Ende: `"11-06" >= "03-01"` ist wahr. Gesperrt waren nur Januar und Februar; vom 1. März bis Silvester galt „Frühjahr erreicht". Nach dem Verstauen im Herbst reichten ein paar frostfreie Tage in der Vorhersage, und die Integration forderte zum Wiederaufbau auf – deren Bestätigung hätte die Saison eingeschaltet. Das Frühjahr ist jetzt ein Fenster `spring_earliest_date` bis `spring_latest_date` (neu, Standard `06-30`), verglichen als (Monat, Tag). Die Logik liegt HA-frei in `saison.py`.
+- **Eine fehlende Vorhersage galt als frostfrei.** Ein gescheiterter Abruf lieferte eine leere Liste, `any([])` ist `False`. Im Frühjahr hieß das „kein Frost in Sicht", im Herbst blieb die Frostwarnung aus. Frostfrei ist jetzt nur eine Vorhersage, die jeden Tag von morgen bis zum Ende der Vorwarnzeit abdeckt; Frost in einer lückenhaften Vorhersage zählt weiter als Frost. Eine unvollständige Vorhersage erscheint im Log und als Attribut `vorhersage_vollstaendig` an beiden Equipment-Sensoren.
+
+### Changed
+- Das Frühjahrs-Flag bleibt sticky gegen schwankendes Wetter, **nicht** gegen den Kalender: Außerhalb des Fensters wird es gelöscht. Eine Fehlmeldung aus 2.2.0 verschwindet damit beim ersten Lauf nach dem Update von selbst – keine Bestätigung und kein Eingriff in `.storage` nötig.
+- Bewusst ein festes Fenster und kein „nächster März nach dem Verstauen": Wird nach einem Spätfrost im April erneut verstaut, kommt die Erinnerung im selben Frühjahr wieder.
+- Der Config Flow lehnt ein ungültiges oder über den Jahreswechsel laufendes Fenster ab.
+
+### Migration
+- Keine. Bestehende Einträge ohne `spring_latest_date` verwenden `06-30`.
+
 ## [2.2.0]
 
 ### Fixed

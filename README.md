@@ -178,7 +178,8 @@ Einstellungen → Geräte & Dienste → „Integration hinzufügen" → „ET0 B
 | `rain_sensor_entity` | gemessener Tagesniederschlag (optional, hat Vorrang vor Prognose) |
 | `rain_effectiveness` | Anteil des Regens, der die Wurzelzone erreicht |
 | `frost_lookahead_days` / `frost_threshold_c` | Frost-Vorwarnung (Equipment-Abbau) |
-| `spring_earliest_date` | frühestes Frühjahrsdatum (`MM-TT`) |
+| `spring_earliest_date` | frühestes Frühjahrsdatum (`MM-TT`, Standard `03-01`) |
+| `spring_latest_date` | spätestes Frühjahrsdatum (`MM-TT`, Standard `06-30`) |
 
 **Schritt 2 – Zonen** (beliebig viele, je Zone ein eigenes Gerät über „Zone hinzufügen"): `name`, `kc`, `drip_rate`, `field_capacity_mm`, `irrigation_efficiency`.
 
@@ -298,7 +299,7 @@ Größenordnung bei 35° Süd (Faktor = Modulebene ÷ Horizontale):
 ## Frost- und Saisonmanagement
 
 - **Herbst:** Sinkt die Tiefsttemperatur-Prognose innerhalb von `frost_lookahead_days` unter `frost_threshold_c`, wird `Frost erwartet` aktiv und bleibt es („sticky"), bis der Equipment-Abbau bestätigt wird.
-- **Frühjahr:** Ab `spring_earliest_date` und ohne Frost in der Vorschau wird `Frühjahr bereit` aktiv, ebenfalls sticky.
+- **Frühjahr:** Nur zwischen `spring_earliest_date` und `spring_latest_date`, und nur wenn die Vorhersage **jeden** Tag der Vorwarnzeit abdeckt und keiner davon Frost zeigt, wird `Frühjahr bereit` aktiv, ebenfalls sticky. Außerhalb des Fensters wird die Erinnerung gelöscht. Ohne Wetter-Entity gibt es keine automatische Frühjahrs-Erinnerung. Attribute: `im_fruehjahrsfenster`, `vorhersage_vollstaendig`.
 - Die Bestätigung über `equipment_status_setzen` schaltet automatisch die Saison mit um und setzt die Bilanz zurück.
 - **Zusätzlich, unabhängig vom Equipment-Thema:** Ist für die unmittelbar bevorstehende Nacht Frost zu erwarten, wird die Bewässerung für diesen Tag ausgesetzt (nasses Laub bei Frost ist schädlicher als trockenes) – nach demselben heute/morgen-Prinzip wie der Regen-Skip.
 

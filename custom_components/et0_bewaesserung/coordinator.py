@@ -67,11 +67,14 @@ from .const import (
     CONF_FROST_THRESHOLD,
     DEFAULT_FROST_THRESHOLD,
     CONF_SPRING_EARLIEST_DATE,
+    CONF_SPRING_LATEST_DATE,
     DEFAULT_SPRING_EARLIEST_DATE,
+    DEFAULT_SPRING_LATEST_DATE,
 )
 from .et0 import calculate_et0, calculate_etc
 from .entscheidung import entscheide_zonen
 from .health import evaluate_health
+from .saison import forecast_complete, in_spring_window
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -772,11 +775,13 @@ class Et0Coordinator(DataUpdateCoordinator):
 
     async def _get_forecast_min_temps(
         self, weather_entity: str, days: int
-    ) -> list[float]:
-        """Tiefsttemperaturen (°C) der kommenden `days` Tage (inkl. heute).
+    ) -> dict[date, float]:
+        """Tiefsttemperaturen (°C) der kommenden `days` Tage (inkl. heute), je Datum.
 
-        Gibt eine leere Liste zurück, wenn die Abfrage fehlschlägt - die
-        Frost-Erkennung ist "nice to have" und darf den ET0-Lauf nie stören.
+        Gibt ein leeres Dict zurück, wenn die Abfrage fehlschlägt - der
+        ET0-Lauf darf daran nie scheitern. ACHTUNG: Leer heißt "unbekannt",
+        nicht "kein Frost". Ob die Vorhersage das Fenster vollständig
+        abdeckt, prüft saison.forecast_complete() anhand der Schlüssel.
         """
         try:
             response = await self.hass.services.async_call(
@@ -789,13 +794,13 @@ class Et0Coordinator(DataUpdateCoordinator):
             )
         except Exception as err:  # noqa: BLE001 - siehe Docstring
             _LOGGER.warning("Frost-Vorhersage konnte nicht abgerufen werden: %s", err)
-            return []
+            return {}
 
         forecasts = (response or {}).get(weather_entity, {}).get("forecast", [])
         today = date.today()
         cutoff = today + timedelta(days=days)
 
-        temps: list[float] = []
+        temps: dict[date, float] = {}
         for entry in forecasts:
             entry_date_str = str(entry.get("datetime", ""))[:10]
             try:
@@ -803,7 +808,9 @@ class Et0Coordinator(DataUpdateCoordinator):
             except ValueError:
                 continue
             if today <= entry_date <= cutoff and entry.get("templow") is not None:
-                temps.append(float(entry["templow"]))
+                low = float(entry["templow"])
+                # Mehrere Einträge je Tag (manche Dienste): der tiefste zählt.
+                temps[entry_date] = min(low, temps.get(entry_date, low))
         return temps
 
     async def _async_update_data(self) -> dict:
@@ -1065,13 +1072,27 @@ class Et0Coordinator(DataUpdateCoordinator):
         spring_earliest = self._get_config(
             CONF_SPRING_EARLIEST_DATE, DEFAULT_SPRING_EARLIEST_DATE
         )
+        spring_latest = self._get_config(
+            CONF_SPRING_LATEST_DATE, DEFAULT_SPRING_LATEST_DATE
+        )
 
+        # Drei Zustände statt zwei: Frost / kein Frost / UNBEKANNT. Bis 2.2.0
+        # ergab ein gescheiterter Abruf eine leere Liste und any([]) = False,
+        # also "kein Frost" - siehe saison.forecast_complete().
         frost_forecast = False
+        frost_forecast_valid = False
         if weather_entity:
             min_temps = await self._get_forecast_min_temps(
                 weather_entity, frost_lookahead
             )
-            frost_forecast = any(t <= frost_threshold for t in min_temps)
+            frost_forecast = any(
+                t <= frost_threshold for t in min_temps.values()
+            )
+            # Frost in einer lückenhaften Vorhersage ist trotzdem Frost;
+            # gültig im Sinne von "frostfrei" ist nur eine vollständige.
+            frost_forecast_valid = frost_forecast or forecast_complete(
+                set(min_temps), date.today(), frost_lookahead
+            )
 
             # Frostschutz WÄHREND der Saison, getrennt nach HEUTE/MORGEN wie
             # beim Regen-Skip (siehe dort für die Begründung). Der obige
@@ -1091,6 +1112,13 @@ class Et0Coordinator(DataUpdateCoordinator):
             )
         frost_imminent = self._frost_skip_today
 
+        if not frost_forecast_valid and weather_entity:
+            _LOGGER.warning(
+                "Frost-Vorhersage für die nächsten %s Tage unvollständig - "
+                "keine Aussage über Frost möglich",
+                frost_lookahead,
+            )
+
         # Herbst: Saison läuft noch, Equipment noch nicht verstaut, Frost kommt
         if self._season_active and not self._equipment_stored and frost_forecast:
             if not self._frost_warning_active:
@@ -1102,20 +1130,35 @@ class Et0Coordinator(DataUpdateCoordinator):
                 )
             self._frost_warning_active = True
 
-        # Frühjahr: Saison pausiert, Equipment noch verstaut, Datum + Wetter passen
-        today_md = date.today().strftime("%m-%d")
-        past_earliest = today_md >= spring_earliest
+        # Frühjahr: Saison pausiert, Equipment noch verstaut, Datum im
+        # Frühjahrsfenster und eine VOLLSTÄNDIGE Vorhersage ohne Frost.
+        # Bis 2.2.0 war das Datum ein Textvergleich ohne Ende ("11-06" >=
+        # "03-01"), die Erinnerung kam damit auch im Herbst - siehe saison.py.
+        in_spring = in_spring_window(date.today(), spring_earliest, spring_latest)
+        if not in_spring and self._spring_ready_active:
+            # Außerhalb des Fensters gibt es kein "Frühjahr bereit". Das
+            # Flag ist sticky gegen schwankendes WETTER, nicht gegen den
+            # Kalender. Heilt nebenbei eine Fehlmeldung aus 2.2.0.
+            _LOGGER.info(
+                "Frühjahrs-Erinnerung zurückgesetzt: heute liegt außerhalb "
+                "des Fensters %s bis %s",
+                spring_earliest,
+                spring_latest,
+            )
+            self._spring_ready_active = False
         if (
             not self._season_active
             and self._equipment_stored
-            and past_earliest
+            and in_spring
+            and frost_forecast_valid
             and not frost_forecast
         ):
             if not self._spring_ready_active:
                 _LOGGER.warning(
-                    "Frühjahrsbedingungen erfüllt (ab %s, kein Frost in %s Tagen) "
-                    "- Equipment-Wiederaufbau möglich",
+                    "Frühjahrsbedingungen erfüllt (%s bis %s, kein Frost in %s "
+                    "Tagen) - Equipment-Wiederaufbau möglich",
                     spring_earliest,
+                    spring_latest,
                     frost_lookahead,
                 )
             self._spring_ready_active = True
@@ -1220,6 +1263,8 @@ class Et0Coordinator(DataUpdateCoordinator):
         result["equipment_stored"] = self._equipment_stored
         result["frost_warning_active"] = self._frost_warning_active
         result["spring_ready_active"] = self._spring_ready_active
+        result["frost_forecast_valid"] = frost_forecast_valid
+        result["spring_window_active"] = in_spring
 
         # --- Fallback-Streaks fortschreiben ---
         # Quellen, die in diesem Lauf über den Cache liefen, hochzählen;

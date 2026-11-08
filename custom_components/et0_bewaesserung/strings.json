@@ -20,6 +20,7 @@
           "frost_lookahead_days": "Frost-Vorwarnzeit (Tage im Voraus prüfen)",
           "frost_threshold_c": "Frost-Schwelle (°C)",
           "spring_earliest_date": "Frühestes Frühjahrs-Datum (MM-TT)",
+          "spring_latest_date": "Spätestes Frühjahrs-Datum (MM-TT)",
           "rain_sensor_entity": "Sensor gemessener Tagesniederschlag (mm, optional)",
           "rain_effectiveness": "Regen-Wirksamkeitsfaktor (1.0 = voll anrechnen)",
           "pv_tilt": "PV-Dachneigung (Grad, 0 = Korrektur aus)",
@@ -30,7 +31,8 @@
     "error": {
       "entity_not_found": "Diese Entity existiert nicht oder wurde nicht ausgewählt.",
       "entity_no_value": "Diese Entity liefert aktuell keinen gültigen Wert (unknown/unavailable). Bitte erst die zugrunde liegende Quelle prüfen.",
-      "entity_not_numeric": "Der aktuelle Wert dieser Entity ist keine Zahl."
+      "entity_not_numeric": "Der aktuelle Wert dieser Entity ist keine Zahl.",
+      "spring_window_invalid": "Frühjahrsfenster ungültig: beide Daten im Format MM-TT, das früheste vor dem spätesten."
     }
   },
   "options": {
@@ -54,6 +56,7 @@
           "frost_lookahead_days": "Frost-Vorwarnzeit (Tage im Voraus prüfen)",
           "frost_threshold_c": "Frost-Schwelle (°C)",
           "spring_earliest_date": "Frühestes Frühjahrs-Datum (MM-TT)",
+          "spring_latest_date": "Spätestes Frühjahrs-Datum (MM-TT)",
           "rain_sensor_entity": "Sensor gemessener Tagesniederschlag (mm, optional)",
           "rain_effectiveness": "Regen-Wirksamkeitsfaktor (1.0 = voll anrechnen)",
           "pv_tilt": "PV-Dachneigung (Grad, 0 = Korrektur aus)",
@@ -64,7 +67,8 @@
     "error": {
       "entity_not_found": "Diese Entity existiert nicht oder wurde nicht ausgewählt.",
       "entity_no_value": "Diese Entity liefert aktuell keinen gültigen Wert (unknown/unavailable). Bitte erst die zugrunde liegende Quelle prüfen.",
-      "entity_not_numeric": "Der aktuelle Wert dieser Entity ist keine Zahl."
+      "entity_not_numeric": "Der aktuelle Wert dieser Entity ist keine Zahl.",
+      "spring_window_invalid": "Frühjahrsfenster ungültig: beide Daten im Format MM-TT, das früheste vor dem spätesten."
     }
   },
   "issues": {

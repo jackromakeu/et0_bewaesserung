@@ -76,12 +76,22 @@ class FrostWarningSensor(Et0BinaryBaseEntity):
             return False
         return bool(self.coordinator.data.get("frost_warning_active", False))
 
+    @property
+    def extra_state_attributes(self):
+        # "aus" heißt nur dann "kein Frost", wenn die Vorhersage vollständig
+        # war. Ohne dieses Attribut ist ein gescheiterter Abruf von einer
+        # frostfreien Woche nicht zu unterscheiden.
+        data = self.coordinator.data or {}
+        return {"vorhersage_vollstaendig": data.get("frost_forecast_valid")}
+
 
 class SpringReadySensor(Et0BinaryBaseEntity):
     """Aktiv, sobald Frühjahrsbedingungen für den Equipment-Wiederaufbau erfüllt sind.
 
-    Bleibt aktiv ("sticky"), bis das Equipment über den Service
-    equipment_status_setzen als wieder aufgebaut bestätigt wird.
+    Nur im Frühjahrsfenster (spring_earliest_date bis spring_latest_date) und
+    nur bei vollständiger frostfreier Vorhersage. Sticky gegen schwankendes
+    Wetter bis zur Bestätigung über equipment_status_setzen - außerhalb des
+    Fensters wird das Flag aber gelöscht.
     """
 
     _attr_name = "Frühjahr bereit - Equipment-Aufbau möglich"
@@ -96,6 +106,14 @@ class SpringReadySensor(Et0BinaryBaseEntity):
         if not self.coordinator.data:
             return False
         return bool(self.coordinator.data.get("spring_ready_active", False))
+
+    @property
+    def extra_state_attributes(self):
+        data = self.coordinator.data or {}
+        return {
+            "im_fruehjahrsfenster": data.get("spring_window_active"),
+            "vorhersage_vollstaendig": data.get("frost_forecast_valid"),
+        }
 
 
 class EquipmentStoredSensor(Et0BinaryBaseEntity):
